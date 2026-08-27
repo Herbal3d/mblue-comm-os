@@ -12,6 +12,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
+using org.herbal3d.mblue.comm.os;
+using org.herbal3d.mblue.Config;
+
 namespace org.herbal3d.mblue.comm {
 
     public static class MBlueCommOSServiceSetup {
@@ -19,6 +22,10 @@ namespace org.herbal3d.mblue.comm {
         public static IServiceCollection AddServices(this IServiceCollection pServices, IConfiguration pConfig) {
             return pServices
                 .Configure<CommOSConfig>(pConfig.GetSection(CommOSConfig.subSectionName))
+                .Configure<GridConfig>(pConfig.GetSection(GridConfig.subSectionName))
+                .AddSingleton<LLGridClient>()
+                .AddSingleton<LLAssetContext>()
+                .AddSingleton<ICommProvider, CommLLLP>()
             ;
         }
     }

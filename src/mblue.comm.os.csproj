@@ -8,6 +8,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Exclude legacy code from compilation while converting the code. -->
+    <Compile Remove="Legacy\**\*.cs" />
+    <None Remove="Legacy\**" />
+    <Content Remove="Legacy\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
@@ -16,8 +23,15 @@
   <ItemGroup Condition="Exists('../../mblue.ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj')">
     <ProjectReference Include="../../mblue.ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="!Exists('../../mblue.esm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj')">
+  <ItemGroup Condition="!Exists('../../mblue.ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj')">
     <PackageReference Include="mblue.ecm.Interface" Version="*" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('../../mblue.comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj')">
+    <ProjectReference Include="../../mblue.comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="!Exists('../../mblue.comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj')">
+    <PackageReference Include="mblue.comm.Interface" Version="*" />
   </ItemGroup>
 
   <ItemGroup Condition="Exists('../../libremetaverse/LibreMetaverse/LibreMetaverse.csproj')">

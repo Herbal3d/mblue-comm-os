@@ -9,10 +9,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using KeeKee.Framework;
-using KeeKee.Framework.Statistics;
+using System.Text.Json.Nodes;
 
-using OMVSD = OpenMetaverse.StructuredData;
+using org.herbal3d.mblue.Common;
+using org.herbal3d.mblue.Statistics;
 
 namespace org.herbal3d.mblue.comm {
     public class CommLLLPStats : IDumpable {
@@ -53,8 +53,8 @@ namespace org.herbal3d.mblue.comm {
             CommStatistics.AddStat(RequestLocalID);
         }
 
-        public OMVSD.OSD? GetDisplayable() {
-            return CommStatistics.GetDisplayable();
+        public JsonNode? GetDump() {
+            return CommStatistics.GetDump();
         }
     }
 }

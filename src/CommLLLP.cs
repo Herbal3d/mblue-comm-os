@@ -12,23 +12,22 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
-using org.herbal3d.mblue;
+using org.herbal3d.mblue.Common;
+using org.herbal3d.mblue.Config;
+using org.herbal3d.mblue.ecm;
 using org.herbal3d.mblue.Logging;
 using org.herbal3d.mblue.Statistics;
 
 using LMV = LibreMetaverse;
-using LibreMetaverse.Packets;
 
-namespace org.herbal3d.mblue.comm {
+namespace org.herbal3d.mblue.comm.os {
     /// <summary>
     /// Communication handler for Linden Lab Legacy Protocol
     /// </summary>
     public class CommLLLP : ICommProvider {
         private MBLogger<CommLLLP> m_log;
 
-        private IOptions<KeeKeeConfig> m_KeeKeeConfig { get; set; }
-        private IOptions<CommConfig> m_CommConfig { get; set; }
-        private IOptions<AssetConfig> m_AssetsConfig { get; set; }
+        private IOptions<CommOSConfig> m_CommOSConfig { get; set; }
 
         private CancellationToken m_cancellationToken;
 
@@ -38,24 +37,15 @@ namespace org.herbal3d.mblue.comm {
         // ICommProvider.Name
         public string Name { get { return "CommLLLP"; } }
 
-        private LLInstanceFactory m_InstanceFactory { get; set; }
-        private LLComponentFactory m_ComponentFactory { get; set; }
+        private LLGridClient m_gridClient;
+        private LLAssetContext m_AssetContext;
 
-        public IAssetContext LLLPAssetContext { get; private set; }
+        private ECMFactory m_ecmFactory;
 
-        private IWorld m_World;
-        public Grids GridList;
-
-        // ICommProvider.GridClient
-        public LMV.GridClient GridClient { get { return m_LLGridClient.GridClient; } }
-        private LLGridClient m_LLGridClient { get; set; }
+        private Grids m_grids;
 
         // list of the region information build for the simulator
         protected Dictionary<LMV.UUID, LLRegionContext> m_regionList = new Dictionary<LMV.UUID, LLRegionContext>();
-
-        // while we wait for a region to be online, we queue requests here
-        protected List<ParamBlock> m_waitTilOnline = new List<ParamBlock>();
-        protected BasicWorkQueue m_waitTilLater;
 
         // There are some messages that come in that are rare but could use some locking.
         // The main paths of prims and updates is pretty solid and multi-threaded but
@@ -103,39 +93,24 @@ namespace org.herbal3d.mblue.comm {
         // If true, hold children objects until parent is available
         protected bool m_shouldHoldChildren = false;
 
-        protected UserPersistantParams m_userPersistantParams;
-
-
         // There is one entity who is the main agent we control
-        public LLEntity? MainAgent { get; set; } = null;
+        public IEntity? MainAgent { get; set; } = null;
 
         public CommLLLP(MBLogger<CommLLLP> pLog,
-                        IOptions<KeeKeeConfig> pKeeKeeConfig,
-                        IOptions<CommConfig> pm_CommConfig,
-                        IOptions<AssetConfig> pm_AssetsConfig,
-                        IAssetContext pAssetContext,
-                        UserPersistantParams pUserParams,
+                        IOptions<CommOSConfig> pCommOSConfig,
+                        LLAssetContext pAssetContext,
                         LLGridClient pGridClient,
                         Grids pGrids,
-                        LLInstanceFactory pInstanceFactory,
-                        ComponentFactory pComponentFactory,
-                        WorkQueueManager pQueueManager,
-                        IWorld pWorld) {
+                        ECMFactory pECMFactory,
+                        WorkQueueManager pQueueManager
+                        ) {
             m_log = pLog;
-            m_KeeKeeConfig = pKeeKeeConfig;
-            m_CommConfig = pm_CommConfig;
-            m_AssetsConfig = pm_AssetsConfig;
-            LLLPAssetContext = pAssetContext;
-            m_userPersistantParams = pUserParams;
-            m_LLGridClient = pGridClient;
-            GridList = pGrids;
-            m_InstanceFactory = pInstanceFactory;
-            m_ComponentFactory = pComponentFactory as LLComponentFactory
-                        ?? throw new ArgumentException("CommLLLP requires an LLComponentFactory",
-                            nameof(pComponentFactory));
+            m_CommOSConfig = pCommOSConfig;
+            m_AssetContext = pAssetContext;
+            m_gridClient = pGridClient;
+            m_grids = pGrids;
+            m_ecmFactory = pECMFactory;
             m_waitTilLater = pQueueManager.CreateBasicWorkQueue("CommLLLP WaitTilLater");
-            m_World = pWorld;
-
         }
 
         public async Task StartAsync(CancellationToken cancellationToken) {
@@ -162,7 +137,7 @@ namespace org.herbal3d.mblue.comm {
                         // Someone requested a logout
                         m_loginState = LoginStateCode.LoggingOut;
                         m_log.Log(MBLogLevel.DCOMM, "ShouldLogOut request. Logging out from LoggedIn state");
-                        GridClient.Network.Logout();
+                        m_gridClient.GridClient.Network.Logout();
                         break;
                     case LoginStateCode.LoggingOut:
                         break;
@@ -188,11 +163,11 @@ namespace org.herbal3d.mblue.comm {
         protected void InitConnectionFramework() {
             // Initialize the SL client
             try {
-                var gc = GridClient;
+                LMV.GridClient gc = m_gridClient.GridClient;
 
                 // DEBUG DEBUG: try setting LMV log level to debug
-                if (m_CommConfig.Value.EnableLowLevelCommDebugging) {
-                    LMV.Settings.LOG_LEVEL = Microsoft.Extensions.Logging.LogLevel.Debug;
+                if (m_CommOSConfig.Value.EnableLowLevelCommDebugging) {
+                    LMV.Settings.LogLevel = Microsoft.Extensions.Logging.LogLevel.Debug;
                     if (!LMV.Logger.IsEnabled(Microsoft.Extensions.Logging.LogLevel.Debug)) {
                         m_log.Log(MBLogLevel.DCOMM, "LMV Logger not enabled");
                     }
@@ -201,31 +176,75 @@ namespace org.herbal3d.mblue.comm {
                 }
                 // END DEBUG DEBUG
 
-                gc.Settings.ENABLE_SIMSTATS = true;
-                gc.Settings.MULTIPLE_SIMS = m_CommConfig.Value.MultipleSims;
-                gc.Settings.ALWAYS_DECODE_OBJECTS = true;
-                gc.Settings.ALWAYS_REQUEST_OBJECTS = true;
-                gc.Settings.OBJECT_TRACKING = true;
-                gc.Settings.AVATAR_TRACKING = true; //but we want to use the libsl avatar system
-                gc.Settings.SEND_AGENT_APPEARANCE = true;    // for the moment, don't do appearance
-                gc.Settings.SEND_AGENT_THROTTLE = true;    // tell them how fast we want it when connected
-                gc.Settings.PARCEL_TRACKING = true;
-                gc.Settings.ALWAYS_REQUEST_PARCEL_ACL = false;
-                gc.Settings.ALWAYS_REQUEST_PARCEL_DWELL = false;
-                gc.Settings.USE_INTERPOLATION_TIMER = false;  // don't need the library helping
-                gc.Settings.SEND_AGENT_UPDATES = true;
+                LMV.Settings.UserAgent = "LibreMetaverse";
+                LMV.Settings.ResourceDir = "linden";
+                LMV.Settings.BindAddress = System.Net.IPAddress.Any;
+                LMV.Settings.MaxHttpConnections = 32;
+                LMV.Settings.PacketArchiveSize = 1000;
+                LMV.Settings.UdpReceiveQueueCapacity = 512;
+                LMV.Settings.TexturePipelineRefreshInterval = 500.0f;
+                LMV.Settings.SimulatorPoolTimeout = 2 * 60 * 1000;
+                LMV.Settings.LogLevel = Microsoft.Extensions.Logging.LogLevel.Debug;
+
+                gc.Settings.Connection.MfaEnabled = m_CommOSConfig.Value.Connection.MfaEnabled;
+                gc.Settings.Connection.LoginServer = m_CommOSConfig.Value.Connection.LoginServer;
+                gc.Settings.Timing.TransferTimeout = m_CommOSConfig.Value.Timing.TransferTimeout;
+                gc.Settings.Timing.TeleportTimeout = m_CommOSConfig.Value.Timing.TeleportTimeout;
+                gc.Settings.Timing.LogoutTimeout = m_CommOSConfig.Value.Timing.LogoutTimeout;
+                gc.Settings.Timing.CapsTimeout = m_CommOSConfig.Value.Timing.CapsTimeout;
+                gc.Settings.Timing.LoginTimeout = m_CommOSConfig.Value.Timing.LoginTimeout;
+                gc.Settings.Timing.ResendTimeout = m_CommOSConfig.Value.Timing.ResendTimeout;
+                gc.Settings.Timing.SimulatorTimeout = m_CommOSConfig.Value.Timing.SimulatorTimeout;
+                gc.Settings.Timing.MapRequestTimeout = m_CommOSConfig.Value.Timing.MapRequestTimeout;
+                gc.Settings.Timing.AgentUpdateInterval = m_CommOSConfig.Value.Timing.AgentUpdateInterval;
+                gc.Settings.Timing.InterpolationInterval = m_CommOSConfig.Value.Timing.InterpolationInterval;
+                gc.Settings.Packets.MaxPendingAcks = m_CommOSConfig.Value.Packets.MaxPendingAcks;
+                gc.Settings.Packets.StatsQueueSize = m_CommOSConfig.Value.Packets.StatsQueueSize;
+                gc.Settings.Packets.MaxResendCount = m_CommOSConfig.Value.Packets.MaxResendCount;
+                gc.Settings.Packets.ThrottleOutgoing = m_CommOSConfig.Value.Packets.ThrottleOutgoing;
+                gc.Settings.Packets.EnableSimStats = m_CommOSConfig.Value.Packets.EnableSimStats;
+                gc.Settings.Packets.SendPings = m_CommOSConfig.Value.Packets.SendPings;
+                gc.Settings.Packets.TrackUtilization = m_CommOSConfig.Value.Packets.TrackUtilization;
+                gc.Settings.Agent.SendUpdates = m_CommOSConfig.Value.Agent.SendUpdates;
+                gc.Settings.Agent.SendUpdatesRegularly = m_CommOSConfig.Value.Agent.SendUpdatesRegularly;
+                gc.Settings.Agent.SendAppearance = m_CommOSConfig.Value.Agent.SendAppearance;
+                gc.Settings.Agent.SendThrottle = m_CommOSConfig.Value.Agent.SendThrottle;
+                gc.Settings.Agent.DisableUpdateDuplicateCheck = m_CommOSConfig.Value.Agent.DisableUpdateDuplicateCheck;
+                gc.Settings.Agent.MultipleSims = m_CommOSConfig.Value.Agent.MultipleSims;
+                gc.Settings.World.AlwaysDecodeObjects = m_CommOSConfig.Value.World.AlwaysDecodeObjects;
+                gc.Settings.World.AlwaysRequestObjects = m_CommOSConfig.Value.World.AlwaysRequestObjects;
+                gc.Settings.World.TrackObjects = m_CommOSConfig.Value.World.TrackObjects;
+                gc.Settings.World.TrackAvatars = m_CommOSConfig.Value.World.TrackAvatars;
+                gc.Settings.World.CachePrimitives = m_CommOSConfig.Value.World.CachePrimitives;
+                gc.Settings.World.UseInterpolationTimer = m_CommOSConfig.Value.World.UseInterpolationTimer;
+                gc.Settings.World.StoreLandPatches = m_CommOSConfig.Value.World.StoreLandPatches;
+                gc.Settings.Parcel.TrackParcels = m_CommOSConfig.Value.Parcel.TrackParcels;
+                gc.Settings.Parcel.AlwaysRequestAcl = m_CommOSConfig.Value.Parcel.AlwaysRequestAcl;
+                gc.Settings.Parcel.AlwaysRequestDwell = m_CommOSConfig.Value.Parcel.AlwaysRequestDwell;
+                gc.Settings.Parcel.PoolParcelData = m_CommOSConfig.Value.Parcel.PoolParcelData;
+                gc.Settings.AssetCache.Enabled = m_CommOSConfig.Value.AssetCache.Enabled;
+                gc.Settings.AssetCache.Dir = m_CommOSConfig.Value.AssetCache.Dir;
+                gc.Settings.AssetCache.MaxSize = m_CommOSConfig.Value.AssetCache.MaxSize;
+                gc.Settings.TexturePipeline.Enabled = m_CommOSConfig.Value.TexturePipeline.Enabled;
+                gc.Settings.TexturePipeline.UseHttpTextures = m_CommOSConfig.Value.TexturePipeline.UseHttpTextures;
+                gc.Settings.TexturePipeline.MaxConcurrentDownloads = m_CommOSConfig.Value.TexturePipeline.MaxConcurrentDownloads;
+                gc.Settings.TexturePipeline.RequestTimeout = m_CommOSConfig.Value.TexturePipeline.RequestTimeout;
+                gc.Settings.Logging.LogNames = m_CommOSConfig.Value.Logging.LogNames;
+                gc.Settings.Logging.LogResends = m_CommOSConfig.Value.Logging.LogResends;
+                gc.Settings.Logging.LogDiskCache = m_CommOSConfig.Value.Logging.LogDiskCache;
+
                 gc.Self.Movement.AutoResetControls = false;
-                gc.Self.Movement.UpdateInterval = m_CommConfig.Value.MovementUpdateInterval;
-                gc.Settings.DISABLE_AGENT_UPDATE_DUPLICATE_CHECK = false;
-                gc.Settings.USE_ASSET_CACHE = true;
-                gc.Settings.PIPELINE_REQUEST_TIMEOUT = 120 * 1000;
-                gc.Settings.ASSET_CACHE_DIR = m_AssetsConfig.Value.CacheDir;
-                LMV.Settings.RESOURCE_DIR = m_AssetsConfig.Value.LMVResources;
+                gc.Self.Movement.UpdateInterval = m_CommOSConfig.Value.Movement.UpdateInterval;
+
+                LMV.Settings.ResourceDir = m_CommOSConfig.Value.LMVResourceDir;
+
+                /* From LookingGlass/KeeKee. Do we need to change throttle settings?
                 // Crank up the throttle on texture downloads
                 gc.Throttle.Total = 20000000.0f;
                 gc.Throttle.Texture = 2446000.0f;
                 gc.Throttle.Asset = 2446000.0f;
-                gc.Settings.THROTTLE_OUTGOING_PACKETS = false;
+                gc.Settings.Packets.ThrottleOutgoing = false;
+                */
 
                 // gc.Network.LoginProgress += Network_LoginProgress;
                 gc.Network.Disconnected += Network_Disconnected;
@@ -242,7 +261,6 @@ namespace org.herbal3d.mblue.comm {
                 gc.Objects.AvatarUpdate += Objects_AvatarUpdate;
                 gc.Objects.KillObject += Objects_KillObject;
                 gc.Avatars.AvatarAppearance += Avatars_AvatarAppearance;
-                gc.Settings.STORE_LAND_PATCHES = true;
                 gc.Terrain.LandPatchReceived += Terrain_LandPatchReceived;
 
             } catch (Exception e) {
@@ -253,7 +271,7 @@ namespace org.herbal3d.mblue.comm {
             m_SwitchingSims = true;
         }
         private void DisconnectConnectionFramework() {
-            var gc = GridClient;
+            var gc = m_gridClient.GridClient;
             // gc.Network.LoginProgress -= Network_LoginProgress;
             gc.Network.Disconnected -= Network_Disconnected;
             gc.Network.SimConnected -= Network_SimConnected;
@@ -280,15 +298,16 @@ namespace org.herbal3d.mblue.comm {
         /// </summary>
         /// <param name="pLoginParams"></param>
         /// <returns></returns>
-        public async Task<LMV.LoginResponseData?> StartLogin(LoginParams pLoginParams) {
+        public async Task<LoginResponse?> StartLogin(LoginParams pLoginParams) {
             // Are we already logged in?
             if (IsLoggedIn) {
                 return null;
             }
 
             m_loginState = LoginStateCode.LoggingIn;
-            var loginResponse = await DoLogin(pLoginParams);
+            LMV.LoginResponseData? loginResponse = await DoLogin(pLoginParams);
 
+            // TODO: convert LMV.LoginResponseData to comm.LoginResponse
             return loginResponse;
         }
 
@@ -325,8 +344,8 @@ namespace org.herbal3d.mblue.comm {
                 m_log.Log(MBLogLevel.DBADERROR, "Did not recognize format of teleport destination: '{0}'", dest);
                 ret = false;
             }
-            if (ret && IsLoggedIn && (GridClient != null)) {
-                if (GridClient.Self.Teleport(sim, new LMV.Vector3(x, y, z))) {
+            if (ret && IsLoggedIn && (m_gridClient.GridClient != null)) {
+                if (m_gridClient.GridClient.Self.Teleport(sim, new LMV.Vector3(x, y, z))) {
                     m_log.Log(MBLogLevel.DBADERROR, "Teleport successful to '{0}'", dest);
                     ret = true;
                 } else {
@@ -340,7 +359,7 @@ namespace org.herbal3d.mblue.comm {
         public async Task<LMV.LoginResponseData> DoLogin(LoginParams pLoginParams) {
             // Make a dummy response so the caller has something to work with
             LMV.LoginResponseData? errLoginResponse = new LMV.LoginResponseData() {
-                Login = LoginState.False,
+                Login = LMV.LoginState.False,
                 Message = "Not logged in"
             };
 
@@ -349,13 +368,13 @@ namespace org.herbal3d.mblue.comm {
                 errLoginResponse.Message = "No login parameters";
                 return errLoginResponse;
             }
-            m_log.Log(MBLogLevel.DCOMM, "Starting login of {0} {1}", pLoginParams.FirstName, pLoginParams.LastName);
-            LMV.LoginParams loginParams = GridClient.Network.DefaultLoginParams(
-                pLoginParams.FirstName,
-                pLoginParams.LastName,
-                pLoginParams.Password,
-                m_KeeKeeConfig.Value.AppName,
-                KeeKeeConfig.InformationalVersion
+            m_log.Log(MBLogLevel.DCOMM, $"Starting login of {pLoginParams.FirstName} {pLoginParams.LastName}");
+            LMV.LoginParams loginParams = m_gridClient.GridClient.Network.DefaultLoginParams(
+                                                pLoginParams.FirstName,
+                                                pLoginParams.LastName,
+                                                pLoginParams.Password,
+                                                m_KeeKeeConfig.Value.AppName,
+                                                KeeKeeConfig.InformationalVersion
             );
 
             // Select sim in the grid
@@ -376,12 +395,12 @@ namespace org.herbal3d.mblue.comm {
                     if (parts.Length == 1) {
                         // just specifying last or home or just a simulator
                         if (parts[0] == "last" || parts[0] == "home") {
-                            m_log.Log(MBLogLevel.DCOMM, "StartLogin: prev location of {0}", parts[0]);
+                            m_log.Log(MBLogLevel.DCOMM, $"StartLogin: prev location of {parts[0]}");
                             loginSetting = parts[0];
                         } else {
                             // put the user in the center of the specified sim
                             loginSetting = LMV.NetworkManager.StartLocation(parts[0], 128, 128, 40);
-                            m_log.Log(MBLogLevel.DCOMM, "StartLogin: user spec middle of {0} -> {1}", parts[0], loginSetting);
+                            m_log.Log(MBLogLevel.DCOMM, $"StartLogin: user spec middle of {parts[0]} -> {loginSetting}");
                         }
                     }
                     if (parts.Length == 4) {
@@ -389,8 +408,7 @@ namespace org.herbal3d.mblue.comm {
                         int posY = int.Parse(parts[2]);
                         int posZ = int.Parse(parts[3]);
                         loginSetting = LMV.NetworkManager.StartLocation(parts[0], posX, posY, posZ);
-                        m_log.Log(MBLogLevel.DCOMM, "StartLogin: user spec start at {0}/{1}/{2}/Z -> {3}",
-                            parts[0], posX, posY, loginSetting);
+                        m_log.Log(MBLogLevel.DCOMM, $"StartLogin: user spec start at {parts[0]}/{posX}/{posY}/{posZ} -> {loginSetting}");
                     }
                 } catch {
                     loginSetting = "";
@@ -399,21 +417,23 @@ namespace org.herbal3d.mblue.comm {
             // if we didn't get anything useful, default to last
             loginParams.Start = String.IsNullOrEmpty(loginSetting) ? "last" : loginSetting;
 
-            GridList.SetCurrentGrid(pLoginParams.Grid ?? "OSGrid");
-            loginParams.URI = GridList.GridLoginURI(GridList.CurrentGrid);
-            // Update the Settings value incase someone uses it
-            GridClient.Settings.LOGIN_SERVER = loginParams.URI ?? "";
-            if (loginParams.URI == null) {
-                m_log.Log(MBLogLevel.DBADERROR, "COULD NOT FIND URL OF GRID. Grid=" + m_loginGrid);
+            m_grids.SetCurrentGrid(pLoginParams.Grid ?? "HippoGrid");
+            var loginURI = m_grids.GridLoginURI(m_grids.CurrentGrid);
+
+            if (String.IsNullOrEmpty(loginURI)) {
+                m_log.Log(MBLogLevel.DBADERROR, "COULD NOT FIND URL OF GRID. Grid=" + m_grids.CurrentGrid);
                 m_loginMsg = "Unknown Grid name";
                 m_loginState = LoginStateCode.LogInFailed;
             } else {
+                loginParams.URI = loginURI;
+                // Update the Settings value incase someone uses it
+                m_gridClient.GridClient.Settings.Connection.LoginServer = loginParams.URI ?? "";
                 try {
                     m_log.Log(MBLogLevel.DCOMM, "Logging in to grid {0} at {1} as {2} {3} start {4}",
-                        GridList.CurrentGrid, loginParams.URI,
+                        m_grids.CurrentGrid, loginParams.URI,
                         loginParams.FirstName, loginParams.LastName,
                         loginParams.Start);
-                    LMV.LoginResponseData response = await GridClient.Network.LoginWithResponseAsync(loginParams, m_cancellationToken);
+                    LMV.LoginResponseData? response = await m_gridClient.GridClient.Network.LoginWithResponseAsync(loginParams, m_cancellationToken);
                     if (response == null) {
                         m_log.Log(MBLogLevel.DBADERROR, "Login response is null");
                         m_loginState = LoginStateCode.LogInFailed;
@@ -462,7 +482,7 @@ namespace org.herbal3d.mblue.comm {
         // ===============================================================
         public virtual void Network_EventQueueRunning(Object? sender, LMV.EventQueueRunningEventArgs args) {
             m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Network_EventQueueRunning: Event queue running");
-            LLRegionContext regionContext;
+            LLRegionContext? regionContext;
             lock (m_opLock) {
                 // the sim isn't really up until the caps queue is running
                 IsConnected = true;   // good enough reason to think we're connected
@@ -495,9 +515,10 @@ namespace org.herbal3d.mblue.comm {
             // this is needed to make the avatar appear
             // TODO: figure out if the linking between agent and appearance is right
             // GridClient.Appearance.SetPreviousAppearance(true);
-            GridClient.Appearance.RequestSetAppearance(true);
-            GridClient.Self.Movement.UpdateFromHeading(0.0, true);
-            GridClient.Parcels.RequestAllSimParcelsAsync(GridClient.Network.CurrentSim, false, new TimeSpan(0, 0, 30), m_cancellationToken);
+            LMV.GridClient gc = m_gridClient.GridClient;
+            gc.Appearance.RequestSetAppearance(true);
+            gc.Self.Movement.UpdateFromHeading(0.0, true);
+            gc.Parcels.RequestAllSimParcelsAsync(gc.Network.CurrentSim, false, new TimeSpan(0, 0, 30), m_cancellationToken);
         }
 
         // ===============================================================
@@ -505,13 +526,13 @@ namespace org.herbal3d.mblue.comm {
             m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Network_SimChanged: Simulator changed");
             // disable teleports until we have a good connection to the simulator (event queue working)
             m_stats.NetSimChanged.Event();
-            if (!GridClient.Network.CurrentSim.Caps.IsEventQueueRunning) {
+            if (!m_gridClient.GridClient.Network.CurrentSim?.Caps?.IsEventQueueRunning ?? true) {
                 m_SwitchingSims = true;
             }
             if (args.PreviousSimulator != null) {      // there is no prev sim the first time
                 m_log.Log(MBLogLevel.DWORLD, "Simulator changed from {0}", args.PreviousSimulator.Name);
-                LLRegionContext regionContext = FindRegion(args.PreviousSimulator);
-                if (regionContext == null) return;
+                LLRegionContext? regionContext = FindRegion(args.PreviousSimulator);
+                if (regionContext is null) return;
                 // TODO: what to do with this operation?
             }
         }
@@ -521,15 +542,15 @@ namespace org.herbal3d.mblue.comm {
             m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Terrain_LandPatchReceived: Land patch received");
             // m_log.Log(MBLogLevel.DWORLDDETAIL, "Land patch for {0}: {1}, {2}, {3}", 
             //             args.Simulator.Name, args.X, args.Y, args.PatchSize);
-            LLRegionContext regionContext = FindRegion(args.Simulator);
+            LLRegionContext? regionContext = FindRegion(args.Simulator);
             if (regionContext == null) return;
             // update the region's view of the terrain
             regionContext.TerrainInfo.UpdatePatch(regionContext, args.X, args.Y, args.HeightMap);
             // tell the world the earth is moving
-            if (QueueTilOnline(args.Simulator, CommActionCode.RegionStateChange, regionContext, UpdateCodes.Terrain)) {
-                return;
-            }
             regionContext.Update(UpdateCodes.Terrain);
+            QueueTilOnline<LMV.LandPatchReceivedEventArgs>(sender, args, (sender, args) => {
+                regionContext.Update(UpdateCodes.Terrain);
+            }
         }
 
         // ===============================================================
@@ -541,61 +562,61 @@ namespace org.herbal3d.mblue.comm {
         // ===============================================================
         public void Objects_ObjectUpdate(object? sender, LMV.PrimEventArgs args) {
             m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_ObjectUpdate: Object update received");
-            if (QueueTilOnline(args.Simulator, CommActionCode.OnObjectUpdated, sender, args)) return;
-
-            if (args.IsAttachment) {
-                Objects_AttachmentUpdate(sender, args);
-                return;
-            }
-            lock (m_opLock) {
-                LLRegionContext? rcontext = FindRegion(args.Simulator);
-                if (rcontext == null) return;
-
-                if (!ParentExists(rcontext, args.Prim.ParentID)) {
-                    // if this requires a parent and the parent isn't here yet, queue this operation til later
-                    rcontext.RequestLocalID(args.Prim.ParentID);
-                    m_stats.RequestLocalID.Event();
-                    QueueTilLater(args.Simulator, CommActionCode.OnObjectUpdated, sender, args);
+            QueueTilOnline<LMV.PrimEventArgs>(sender, args, (sender, args) => {
+                if (args.IsAttachment) {
+                    Objects_AttachmentUpdate(sender, args);
                     return;
                 }
-                m_stats.ObjObjectUpdate.Event();
-                IEntity? updatedEntity;
-                // a full update says everything changed
-                UpdateCodes updateFlags = 0;
-                updateFlags |= UpdateCodes.Position | UpdateCodes.Rotation;
-                m_log.Log(MBLogLevel.DUPDATEDETAIL, "Object update: id={0}, p={1}, r={2}",
-                    args.Prim.LocalID, args.Prim.Position.ToString(), args.Prim.Rotation.ToString());
-                try {
-                    if (rcontext.TryGetCreateEntityLocalID(args.Prim.LocalID, out updatedEntity, delegate () {
-                        // code called to create the entry if it's not found
-                        m_log.Log(MBLogLevel.DUPDATEDETAIL, "ObjectUpdate: creating new entity for local ID {0}", args.Prim.LocalID);
-                        updateFlags |= UpdateCodes.New;
-                        updateFlags |= UpdateCodes.Acceleration | UpdateCodes.AngularVelocity | UpdateCodes.Velocity;
-                        var newEntity = m_InstanceFactory.CreateLLPhysical(GridClient, args.Prim, rcontext, LLLPAssetContext);
-                        rcontext.Entities.AddEntity(newEntity);
-                        return newEntity;
-                    })) {
-                        // new prim created
-                        // If this requires special rendering parameters add those parameters
-                        // At the moment, the only case is foliage
-                        if (args.Prim.PrimData.PCode == OpenMetaverse.PCode.Grass
-                                    || args.Prim.PrimData.PCode == OpenMetaverse.PCode.Tree
-                                    || args.Prim.PrimData.PCode == OpenMetaverse.PCode.NewTree) {
-                            LLCmptSpecialRender srt = m_ComponentFactory.CreateComponent<LLCmptSpecialRender>(updatedEntity, rcontext);
-                            srt.Type = SpecialRenderTypes.Foliage;
-                            srt.FoliageType = args.Prim.PrimData.PCode;
-                            srt.TreeType = args.Prim.TreeSpecies;
-                            updatedEntity.AddComponent<LLCmptSpecialRender>(srt);
-                        }
-                        // if there are animations for this entity
-                        ProcessEntityAnimation(updatedEntity, ref updateFlags, args.Prim.AngularVelocity);
+                lock (m_opLock) {
+                    LLRegionContext? rcontext = FindRegion(args.Simulator);
+                    if (rcontext == null) return;
+
+                    if (!ParentExists(rcontext, args.Prim.ParentID)) {
+                        // if this requires a parent and the parent isn't here yet, queue this operation til later
+                        rcontext.RequestLocalID(args.Prim.ParentID);
+                        m_stats.RequestLocalID.Event();
+                        QueueTilLater(args.Simulator, CommActionCode.OnObjectUpdated, sender, args);
+                        return;
                     }
-                    // send updates for this entity updates
-                    ProcessEntityUpdates(updatedEntity, updateFlags);
-                } catch (Exception e) {
-                    m_log.Log(MBLogLevel.DBADERROR, "FAILED CREATION OF NEW PRIM: " + e.ToString());
+                    m_stats.ObjObjectUpdate.Event();
+                    IEntity? updatedEntity;
+                    // a full update says everything changed
+                    UpdateCodes updateFlags = 0;
+                    updateFlags |= UpdateCodes.Position | UpdateCodes.Rotation;
+                    m_log.Log(MBLogLevel.DUPDATEDETAIL, "Object update: id={0}, p={1}, r={2}",
+                        args.Prim.LocalID, args.Prim.Position.ToString(), args.Prim.Rotation.ToString());
+                    try {
+                        if (rcontext.TryGetCreateEntityLocalID(args.Prim.LocalID, out updatedEntity, delegate () {
+                            // code called to create the entry if it's not found
+                            m_log.Log(MBLogLevel.DUPDATEDETAIL, "ObjectUpdate: creating new entity for local ID {0}", args.Prim.LocalID);
+                            updateFlags |= UpdateCodes.New;
+                            updateFlags |= UpdateCodes.Acceleration | UpdateCodes.AngularVelocity | UpdateCodes.Velocity;
+                            var newEntity = m_InstanceFactory.CreateLLPhysical(GridClient, args.Prim, rcontext, LLLPAssetContext);
+                            rcontext.Entities.AddEntity(newEntity);
+                            return newEntity;
+                        })) {
+                            // new prim created
+                            // If this requires special rendering parameters add those parameters
+                            // At the moment, the only case is foliage
+                            if (args.Prim.PrimData.PCode == LMV.PCode.Grass
+                                        || args.Prim.PrimData.PCode == LMV.PCode.Tree
+                                        || args.Prim.PrimData.PCode == LMV.PCode.NewTree) {
+                                LLCmptSpecialRender srt = m_ECMFactory.CreateComponent<LLCmptSpecialRender>(updatedEntity, rcontext);
+                                srt.Type = SpecialRenderTypes.Foliage;
+                                srt.FoliageType = args.Prim.PrimData.PCode;
+                                srt.TreeType = args.Prim.TreeSpecies;
+                                updatedEntity.AddComponent<LLCmptSpecialRender>(srt);
+                            }
+                            // if there are animations for this entity
+                            ProcessEntityAnimation(updatedEntity, ref updateFlags, args.Prim.AngularVelocity);
+                        }
+                        // send updates for this entity updates
+                        ProcessEntityUpdates(updatedEntity, updateFlags);
+                    } catch (Exception e) {
+                        m_log.Log(MBLogLevel.DBADERROR, "FAILED CREATION OF NEW PRIM: " + e.ToString());
+                    }
                 }
-            }
+            });
 
             return;
         }
@@ -612,7 +633,7 @@ namespace org.herbal3d.mblue.comm {
         }
 
         // For the moment, create only one animation for an entity and that is the angular rotation.
-        private void ProcessEntityAnimation(IEntity ent, ref UpdateCodes updateFlags, LMV.Vector3 angularVelocity) {
+        private void ProcessEntityAnimation(IEntity? ent, ref UpdateCodes updateFlags, LMV.Vector3 angularVelocity) {
             try {
                 // if  there is an angular velocity and this is not an avatar, pass the information
                 // along as an animation (llTargetOmega)
@@ -621,19 +642,20 @@ namespace org.herbal3d.mblue.comm {
                     float rotPerSec = angularVelocity.Length() / Constants.TWOPI;
                     LMV.Vector3 axis = angularVelocity;
                     axis.Normalize();
-                    if (!ent.HasComponent<LLCmptAnimation>()) {
-                        var newAnim = m_ComponentFactory.CreateComponent<LLCmptAnimation>(ent, m_LLGridClient);
-                        ent.AddComponent<ICmptAnimation>(newAnim);
+                    if (ent is not null && !ent.HasComponent<LLCmptAnimation>()) {
+                        var newAnim = m_ecmFactory.CreateAndAddComponent<LLCmptAnimation>(ent, m_LLGridClient);
                         m_log.Log(MBLogLevel.DUPDATEDETAIL, "Created prim animation on {0}", ent.Name);
                     }
-                    LLCmptAnimation anim = ent.Cmpt<LLCmptAnimation>();
-                    if (rotPerSec != anim.StaticRotationRotPerSec || axis != anim.StaticRotationAxis) {
-                        anim.AngularVelocity = angularVelocity;   // legacy. Remove when other part plumbed
-                        anim.StaticRotationAxis = axis;
-                        anim.StaticRotationRotPerSec = rotPerSec;
-                        anim.DoStaticRotation = true;
-                        updateFlags |= UpdateCodes.Animation;
-                        m_log.Log(MBLogLevel.DUPDATEDETAIL, "Updating prim animation on {0}", ent.Name);
+                    if (ent != null) {
+                        LLCmptAnimation anim = ent.Cmpt<LLCmptAnimation>();
+                        if (rotPerSec != anim.StaticRotationRotPerSec || axis != anim.StaticRotationAxis) {
+                            anim.AngularVelocity = angularVelocity;   // legacy. Remove when other part plumbed
+                            anim.StaticRotationAxis = axis;
+                            anim.StaticRotationRotPerSec = rotPerSec;
+                            anim.DoStaticRotation = true;
+                            updateFlags |= UpdateCodes.Animation;
+                            m_log.Log(MBLogLevel.DUPDATEDETAIL, "Updating prim animation on {0}", ent.Name);
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -662,123 +684,125 @@ namespace org.herbal3d.mblue.comm {
         // The packet library has updated the attachement points in the prim already
         // This needs to get the attachment loaded into the world
         public void Objects_AttachmentUpdate(object? sender, LMV.PrimEventArgs args) {
-            if (QueueTilOnline(args.Simulator, CommActionCode.OnAttachmentUpdate, sender, args)) return;
-            m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_AttachmentUpdate: Attachment update received");
-            lock (m_opLock) {
-                LLRegionContext? rcontext = FindRegion(args.Simulator);
-                if (rcontext == null) return;
+            QueueTilOnline<LMV.PrimEventArgs>(sender, args, (sender, args) => {
+                m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_AttachmentUpdate: Attachment update received");
+                lock (m_opLock) {
+                    LLRegionContext? rcontext = FindRegion(args.Simulator);
+                    if (rcontext == null) return;
 
-                if (!ParentExists(rcontext, args.Prim.ParentID)) {
-                    // if this requires a parent and the parent isn't here yet, queue this operation til later
-                    rcontext.RequestLocalID(args.Prim.ParentID);
-                    QueueTilLater(args.Simulator, CommActionCode.OnObjectUpdated, sender, args);
-                    return;
-                }
+                    if (!ParentExists(rcontext, args.Prim.ParentID)) {
+                        // if this requires a parent and the parent isn't here yet, queue this operation til later
+                        rcontext.RequestLocalID(args.Prim.ParentID);
+                        QueueTilLater(args.Simulator, CommActionCode.OnObjectUpdated, sender, args);
+                        return;
+                    }
 
-                m_stats.ObjAttachmentUpdate.Event();
-                m_log.Log(MBLogLevel.DUPDATEDETAIL, "OnNewAttachment: id={0}, lid={1}", args.Prim.ID.ToString(), args.Prim.LocalID);
+                    m_stats.ObjAttachmentUpdate.Event();
+                    m_log.Log(MBLogLevel.DUPDATEDETAIL, "OnNewAttachment: id={0}, lid={1}", args.Prim.ID.ToString(), args.Prim.LocalID);
 
-                try {
-                    // if new or not, assume everything about this entity has changed
-                    UpdateCodes updateFlags = UpdateCodes.FullUpdate;
-                    IEntity ent;
-                    if (rcontext.TryGetCreateEntityLocalID(args.Prim.LocalID, out ent, () => {
-                        m_log.Log(MBLogLevel.DUPDATEDETAIL, "OnNewAttachment: creating new entity for local ID {0}", args.Prim.LocalID);
-                        LLEntity newEnt = m_InstanceFactory.CreateLLPhysical(GridClient, args.Prim, rcontext, LLLPAssetContext);
-                        rcontext.Entities.AddEntity(newEnt);
-                        updateFlags |= UpdateCodes.New;
-                        string? attachmentID = "1"; // default attachment ID
-                        if (args.Prim.NameValues != null) {
-                            foreach (LMV.NameValue nv in args.Prim.NameValues) {
-                                m_log.Log(MBLogLevel.DCOMMDETAIL, "AttachmentUpdate: ent={0}, {1}->{2}", newEnt.Name, nv.Name, nv.Value);
-                                if (nv.Name == "AttachItemID") {
-                                    attachmentID = nv.Value.ToString();
-                                    break;
+                    try {
+                        // if new or not, assume everything about this entity has changed
+                        UpdateCodes updateFlags = UpdateCodes.FullUpdate;
+                        IEntity ent;
+                        if (rcontext.TryGetCreateEntityLocalID(args.Prim.LocalID, out ent, () => {
+                            m_log.Log(MBLogLevel.DUPDATEDETAIL, "OnNewAttachment: creating new entity for local ID {0}", args.Prim.LocalID);
+                            LLEntity newEnt = m_InstanceFactory.CreateLLPhysical(GridClient, args.Prim, rcontext, LLLPAssetContext);
+                            rcontext.Entities.AddEntity(newEnt);
+                            updateFlags |= UpdateCodes.New;
+                            string? attachmentID = "1"; // default attachment ID
+                            if (args.Prim.NameValues != null) {
+                                foreach (LMV.NameValue nv in args.Prim.NameValues) {
+                                    m_log.Log(MBLogLevel.DCOMMDETAIL, "AttachmentUpdate: ent={0}, {1}->{2}", newEnt.Name, nv.Name, nv.Value);
+                                    if (nv.Name == "AttachItemID") {
+                                        attachmentID = nv.Value.ToString();
+                                        break;
+                                    }
                                 }
                             }
+                            LLCmptAttachment att = m_ComponentFactory.CreateComponent<LLCmptAttachment>(newEnt, m_LLGridClient);
+                            newEnt.AddComponent<LLCmptAttachment>(att);
+                            att.AttachmentID = attachmentID ?? "";
+                            att.AttachmentPoint = args.Prim.PrimData.AttachmentPoint;
+                            return newEnt;
+                        })) {
+                        } else {
+                            m_log.Log(MBLogLevel.DBADERROR, "FAILED CREATION OF NEW ATTACHMENT");
                         }
-                        LLCmptAttachment att = m_ComponentFactory.CreateComponent<LLCmptAttachment>(newEnt, m_LLGridClient);
-                        newEnt.AddComponent<LLCmptAttachment>(att);
-                        att.AttachmentID = attachmentID ?? "";
-                        att.AttachmentPoint = args.Prim.PrimData.AttachmentPoint;
-                        return newEnt;
-                    })) {
-                    } else {
-                        m_log.Log(MBLogLevel.DBADERROR, "FAILED CREATION OF NEW ATTACHMENT");
+                        ent.Update(updateFlags);
+                    } catch (Exception e) {
+                        m_log.Log(MBLogLevel.DBADERROR, "FAILED CREATION OF NEW ATTACHMENT: " + e.ToString());
                     }
-                    ent.Update(updateFlags);
-                } catch (Exception e) {
-                    m_log.Log(MBLogLevel.DBADERROR, "FAILED CREATION OF NEW ATTACHMENT: " + e.ToString());
                 }
-            }
+            });
             return;
         }
         // ===============================================================
         private void Objects_TerseObjectUpdate(object? sender, LMV.TerseObjectUpdateEventArgs args) {
             m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_TerseObjectUpdate: Terse object update received");
-            if (QueueTilOnline(args.Simulator, CommActionCode.TerseObjectUpdate, sender, args)) return;
-            if (args.Simulator == null) {
-                m_log.Log(MBLogLevel.DBADERROR, "TerseObjectUpdate: Simulator is null");
-                return;
-            }
-            LLRegionContext? rcontext = FindRegion(args.Simulator);
-            if (rcontext == null) {
-                m_log.Log(MBLogLevel.DBADERROR, "TerseObjectUpdate: no region context for simulator {0}", args.Simulator.Name);
-                return;
-            }
-
-            LMV.ObjectMovementUpdate update = args.Update;
-            m_stats.ObjTerseUpdate.Event();
-
-            // IEntity? updatedEntity = null;
-            UpdateCodes updateFlags = 0;
-            lock (m_opLock) {
-                if (args.Prim.Acceleration != args.Update.Acceleration) updateFlags |= UpdateCodes.Acceleration;
-                if (args.Prim.Velocity != args.Update.Velocity) updateFlags |= UpdateCodes.Velocity;
-                if (args.Prim.AngularVelocity != args.Update.AngularVelocity) updateFlags |= UpdateCodes.AngularVelocity;
-                if (args.Prim.Position != args.Update.Position) updateFlags |= UpdateCodes.Position;
-                if (args.Prim.Rotation != args.Update.Rotation) updateFlags |= UpdateCodes.Rotation;
-                if (update.Avatar) updateFlags |= UpdateCodes.CollisionPlane;
-                if (update.Textures != null) updateFlags |= UpdateCodes.Textures;
-                m_log.Log(MBLogLevel.DUPDATEDETAIL, "Object update: id={0}, p={1}, r={2}, what={3}",
-                        update.LocalID, update.Position.ToString(), update.Rotation.ToString(),
-                        UpdateCodesUtil.UpdateCodesToString(updateFlags));
-
-                try {
-                    if (args.Prim.ID == LMV.UUID.Zero) {
-                        m_log.Log(MBLogLevel.DBADERROR, "TerseObjectUpdate: received prim with UUID zero");
-                        return;
-                    }
-                    if (rcontext.TryGetCreateEntityLocalID(args.Prim.LocalID, out var updatedEntity, delegate () {
-                        // code called to create the entry if it's not found
-                        m_log.Log(MBLogLevel.DUPDATEDETAIL, "TerseObjectUpdate: creating new entity for local ID {0}", args.Prim.LocalID);
-                        updateFlags |= UpdateCodes.New;
-                        updateFlags |= UpdateCodes.Acceleration | UpdateCodes.AngularVelocity | UpdateCodes.Velocity;
-                        var newEnt = m_InstanceFactory.CreateLLPhysical(GridClient, args.Prim, rcontext, LLLPAssetContext);
-                        rcontext.Entities.AddEntity(newEnt);
-                        return newEnt;
-                    })) {
-                        // new prim created
-                        // If this requires special rendering parameters add those parameters
-                        // At the moment, the only case is foliage
-                        if (args.Prim.PrimData.PCode == OpenMetaverse.PCode.Grass
-                                    || args.Prim.PrimData.PCode == OpenMetaverse.PCode.Tree
-                                    || args.Prim.PrimData.PCode == OpenMetaverse.PCode.NewTree) {
-                            LLCmptSpecialRender srt = m_ComponentFactory.CreateComponent<LLCmptSpecialRender>(updatedEntity, rcontext);
-                            srt.Type = SpecialRenderTypes.Foliage;
-                            srt.FoliageType = args.Prim.PrimData.PCode;
-                            srt.TreeType = args.Prim.TreeSpecies;
-                            updatedEntity.AddComponent<LLCmptSpecialRender>(srt);
-                        }
-                        // if there are animations for this entity
-                        ProcessEntityAnimation(updatedEntity, ref updateFlags, args.Prim.AngularVelocity);
-                    }
-                    // send updates for this entity updates
-                    ProcessEntityUpdates(updatedEntity, updateFlags);
-                } catch (Exception e) {
-                    m_log.Log(MBLogLevel.DBADERROR, "FAILED CREATION OF NEW PRIM: " + e.ToString());
+            QueueTilOnline<LMV.TerseObjectUpdateEventArgs>(sender, args, (sender, args) => {
+                if (args.Simulator == null) {
+                    m_log.Log(MBLogLevel.DBADERROR, "TerseObjectUpdate: Simulator is null");
+                    return;
                 }
-            }
+                LLRegionContext? rcontext = FindRegion(args.Simulator);
+                if (rcontext == null) {
+                    m_log.Log(MBLogLevel.DBADERROR, "TerseObjectUpdate: no region context for simulator {0}", args.Simulator.Name);
+                    return;
+                }
+
+                LMV.ObjectMovementUpdate update = args.Update;
+                m_stats.ObjTerseUpdate.Event();
+
+                // IEntity? updatedEntity = null;
+                UpdateCodes updateFlags = 0;
+                lock (m_opLock) {
+                    if (args.Prim.Acceleration != args.Update.Acceleration) updateFlags |= UpdateCodes.Acceleration;
+                    if (args.Prim.Velocity != args.Update.Velocity) updateFlags |= UpdateCodes.Velocity;
+                    if (args.Prim.AngularVelocity != args.Update.AngularVelocity) updateFlags |= UpdateCodes.AngularVelocity;
+                    if (args.Prim.Position != args.Update.Position) updateFlags |= UpdateCodes.Position;
+                    if (args.Prim.Rotation != args.Update.Rotation) updateFlags |= UpdateCodes.Rotation;
+                    if (update.Avatar) updateFlags |= UpdateCodes.CollisionPlane;
+                    if (update.Textures != null) updateFlags |= UpdateCodes.Textures;
+                    m_log.Log(MBLogLevel.DUPDATEDETAIL, "Object update: id={0}, p={1}, r={2}, what={3}",
+                            update.LocalID, update.Position.ToString(), update.Rotation.ToString(),
+                            UpdateCodesUtil.UpdateCodesToString(updateFlags));
+
+                    try {
+                        if (args.Prim.ID == LMV.UUID.Zero) {
+                            m_log.Log(MBLogLevel.DBADERROR, "TerseObjectUpdate: received prim with UUID zero");
+                            return;
+                        }
+                        if (rcontext.TryGetCreateEntityLocalID(args.Prim.LocalID, out var updatedEntity, delegate () {
+                            // code called to create the entry if it's not found
+                            m_log.Log(MBLogLevel.DUPDATEDETAIL, "TerseObjectUpdate: creating new entity for local ID {0}", args.Prim.LocalID);
+                            updateFlags |= UpdateCodes.New;
+                            updateFlags |= UpdateCodes.Acceleration | UpdateCodes.AngularVelocity | UpdateCodes.Velocity;
+                            var newEnt = m_InstanceFactory.CreateLLPhysical(GridClient, args.Prim, rcontext, LLLPAssetContext);
+                            rcontext.Entities.AddEntity(newEnt);
+                            return newEnt;
+                        })) {
+                            // new prim created
+                            // If this requires special rendering parameters add those parameters
+                            // At the moment, the only case is foliage
+                            if (args.Prim.PrimData.PCode == LMV.PCode.Grass
+                                        || args.Prim.PrimData.PCode == LMV.PCode.Tree
+                                        || args.Prim.PrimData.PCode == LMV.PCode.NewTree) {
+                                LLCmptSpecialRender srt = m_ComponentFactory.CreateComponent<LLCmptSpecialRender>(updatedEntity, rcontext);
+                                srt.Type = SpecialRenderTypes.Foliage;
+                                srt.FoliageType = args.Prim.PrimData.PCode;
+                                srt.TreeType = args.Prim.TreeSpecies;
+                                updatedEntity.AddComponent<LLCmptSpecialRender>(srt);
+                            }
+                            // if there are animations for this entity
+                            ProcessEntityAnimation(updatedEntity, ref updateFlags, args.Prim.AngularVelocity);
+                        }
+                        // send updates for this entity updates
+                        ProcessEntityUpdates(updatedEntity, updateFlags);
+                    } catch (Exception e) {
+                        m_log.Log(MBLogLevel.DBADERROR, "FAILED CREATION OF NEW PRIM: " + e.ToString());
+                    }
+                }
+            });
 
             return;
         }
@@ -795,91 +819,94 @@ namespace org.herbal3d.mblue.comm {
         // ===============================================================
         public void Objects_AvatarUpdate(object? sender, LMV.AvatarUpdateEventArgs args) {
             m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_AvatarUpdate: Avatar update received");
-            if (QueueTilOnline(args.Simulator, CommActionCode.OnAvatarUpdate, sender, args)) return;
-            lock (m_opLock) {
-                LLRegionContext? rcontext = FindRegion(args.Simulator);
-                if (rcontext == null) {
-                    m_log.Log(MBLogLevel.DBADERROR, "AvatarUpdate: no region context for simulator {0}", args.Simulator.Name);
-                    return;
-                }
-                if (!ParentExists(rcontext, args.Avatar.ParentID)) {
-                    // if this requires a parent and the parent isn't here yet, queue this operation til later
-                    rcontext.RequestLocalID(args.Avatar.ParentID);
-                    QueueTilLater(args.Simulator, CommActionCode.OnAvatarUpdate, sender, args);
-                    return;
-                }
-                m_stats.ObjAvatarUpdate.Event();
-                m_log.Log(MBLogLevel.DUPDATEDETAIL, "Objects_AvatarUpdate: cntl={0}, parent={1}, p={2}, r={3}",
-                            args.Avatar.ControlFlags.ToString("x"), args.Avatar.ParentID,
-                            args.Avatar.Position, args.Avatar.Rotation);
-                UpdateCodes updateFlags = UpdateCodes.Acceleration | UpdateCodes.AngularVelocity
-                            | UpdateCodes.Position | UpdateCodes.Rotation | UpdateCodes.Velocity;
-                // This is an avatar, assume somethings changed no matter what
-                updateFlags |= UpdateCodes.CollisionPlane;
-
-                EntityName avatarEntityName = new EntityNameLL(rcontext.AssetContext, "Avatar", args.Avatar.ID);
-
-                IEntity? updatedEntity;
-                if (!rcontext.Entities.TryGetEntity(avatarEntityName, out updatedEntity)) {
-                    m_log.Log(MBLogLevel.DUPDATEDETAIL, "AvatarUpdate: creating avatar {0} {1} ({2})",
-                        args.Avatar.FirstName, args.Avatar.LastName, args.Avatar.ID);
-                    updatedEntity = m_InstanceFactory.CreateLLAvatar(args.Avatar, rcontext, LLLPAssetContext);
-                    updateFlags |= UpdateCodes.New;
-                    rcontext.Entities.AddEntity(updatedEntity);
-                }
-                if (updatedEntity != null) {
-                    updatedEntity.Cmpt<ICmptLocation>().LocalPosition = args.Avatar.Position;
-                    updatedEntity.Cmpt<ICmptLocation>().Heading = args.Avatar.Rotation;
-                    // We check here if this avatar goes with the agent in the world
-                    // If this av is with the agent, make the connection
-                    m_log.Log(MBLogLevel.DUPDATEDETAIL, "AvatarUpdate: Alid={0}, Clid={1}",
-                                            args.Avatar.LocalID, GridClient.Self.LocalID);
-                    if (args.Avatar.LocalID == GridClient.Self.LocalID) {
-                        m_log.Log(MBLogLevel.DUPDATEDETAIL, "AvatarUpdate: associating agent with new avatar");
-                        this.MainAgent = updatedEntity as LLEntity;
+            QueueTilOnline<LMV.AvatarUpdateEventArgs>(sender, args, (sender, args) => {
+                lock (m_opLock) {
+                    LLRegionContext? rcontext = FindRegion(args.Simulator);
+                    if (rcontext == null) {
+                        m_log.Log(MBLogLevel.DBADERROR, "AvatarUpdate: no region context for simulator {0}", args.Simulator.Name);
+                        return;
                     }
-                    // send updates for the updated entity
-                    ProcessEntityUpdates(updatedEntity, updateFlags);
+                    if (!ParentExists(rcontext, args.Avatar.ParentID)) {
+                        // if this requires a parent and the parent isn't here yet, queue this operation til later
+                        rcontext.RequestLocalID(args.Avatar.ParentID);
+                        QueueTilLater(args.Simulator, CommActionCode.OnAvatarUpdate, sender, args);
+                        return;
+                    }
+                    m_stats.ObjAvatarUpdate.Event();
+                    m_log.Log(MBLogLevel.DUPDATEDETAIL, "Objects_AvatarUpdate: cntl={0}, parent={1}, p={2}, r={3}",
+                                args.Avatar.ControlFlags.ToString("x"), args.Avatar.ParentID,
+                                args.Avatar.Position, args.Avatar.Rotation);
+                    UpdateCodes updateFlags = UpdateCodes.Acceleration | UpdateCodes.AngularVelocity
+                                | UpdateCodes.Position | UpdateCodes.Rotation | UpdateCodes.Velocity;
+                    // This is an avatar, assume somethings changed no matter what
+                    updateFlags |= UpdateCodes.CollisionPlane;
+
+                    EntityName avatarEntityName = new EntityNameLL(rcontext.AssetContext, "Avatar", args.Avatar.ID);
+
+                    IEntity? updatedEntity;
+                    if (!rcontext.Entities.TryGetEntity(avatarEntityName, out updatedEntity)) {
+                        m_log.Log(MBLogLevel.DUPDATEDETAIL, "AvatarUpdate: creating avatar {0} {1} ({2})",
+                            args.Avatar.FirstName, args.Avatar.LastName, args.Avatar.ID);
+                        updatedEntity = m_InstanceFactory.CreateLLAvatar(args.Avatar, rcontext, LLLPAssetContext);
+                        updateFlags |= UpdateCodes.New;
+                        rcontext.Entities.AddEntity(updatedEntity);
+                    }
+                    if (updatedEntity != null) {
+                        updatedEntity.Cmpt<ICmptLocation>().LocalPosition = args.Avatar.Position;
+                        updatedEntity.Cmpt<ICmptLocation>().Heading = args.Avatar.Rotation;
+                        // We check here if this avatar goes with the agent in the world
+                        // If this av is with the agent, make the connection
+                        m_log.Log(MBLogLevel.DUPDATEDETAIL, "AvatarUpdate: Alid={0}, Clid={1}",
+                                                args.Avatar.LocalID, GridClient.Self.LocalID);
+                        if (args.Avatar.LocalID == GridClient.Self.LocalID) {
+                            m_log.Log(MBLogLevel.DUPDATEDETAIL, "AvatarUpdate: associating agent with new avatar");
+                            this.MainAgent = updatedEntity as LLEntity;
+                        }
+                        // send updates for the updated entity
+                        ProcessEntityUpdates(updatedEntity, updateFlags);
+                    }
                 }
-            }
+            });
             return;
         }
 
         // ===============================================================
         public virtual void Objects_KillObject(object? sender, LMV.KillObjectEventArgs args) {
             m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_KillObject: Object kill received");
-            if (QueueTilOnline(args.Simulator, CommActionCode.KillObject, sender, args)) return;
-            LLRegionContext rcontext = FindRegion(args.Simulator);
-            if (rcontext == null) return;
-            m_stats.ObjKillObject.Event();
-            m_log.Log(MBLogLevel.DWORLDDETAIL, "Object killed:");
-            try {
-                IEntity removedEntity;
-                if (rcontext.TryGetEntityLocalID(args.ObjectLocalID, out removedEntity)) {
-                    rcontext.Entities.RemoveEntity(removedEntity);
+            QueueTilOnline<LMV.KillObjectEventArgs>(sender, args, (sender, args) => {
+                LLRegionContext rcontext = FindRegion(args.Simulator);
+                if (rcontext == null) return;
+                m_stats.ObjKillObject.Event();
+                m_log.Log(MBLogLevel.DWORLDDETAIL, "Object killed:");
+                try {
+                    IEntity removedEntity;
+                    if (rcontext.TryGetEntityLocalID(args.ObjectLocalID, out removedEntity)) {
+                        rcontext.Entities.RemoveEntity(removedEntity);
+                    }
+                } catch (Exception e) {
+                    m_log.Log(MBLogLevel.DBADERROR, "FAILED DELETION OF OBJECT: " + e.ToString());
                 }
-            } catch (Exception e) {
-                m_log.Log(MBLogLevel.DBADERROR, "FAILED DELETION OF OBJECT: " + e.ToString());
-            }
+            });
             return;
         }
 
         // ===============================================================
         public virtual void Avatars_AvatarAppearance(object? sender, LMV.AvatarAppearanceEventArgs args) {
             m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Avatars_AvatarAppearance: Avatar appearance received");
-            if (QueueTilOnline(args.Simulator, CommActionCode.OnAvatarAppearance, sender, args)) return;
-            LLRegionContext? rcontext = FindRegion(args.Simulator);
-            if (rcontext == null) return;
-            m_log.Log(MBLogLevel.DCOMMDETAIL, "AvatarAppearance: id={0}", args.AvatarID.ToString());
-            // the appearance information is stored in the avatar info in libomv
-            // We just kick the system to look at it
-            lock (m_opLock) {
-                EntityName avatarEntityName = new EntityNameLL(rcontext.AssetContext, "Avatar", args.AvatarID);
-                IEntity? ent;
-                if (rcontext.TryGetEntity(avatarEntityName, out ent)) {
-                    ent?.Update(UpdateCodes.Appearance);
+            QueueTilOnline<LMV.AvatarAppearanceEventArgs>(sender, args, (sender, args) => {
+                LLRegionContext? rcontext = FindRegion(args.Simulator);
+                if (rcontext == null) return;
+                m_log.Log(MBLogLevel.DCOMMDETAIL, "AvatarAppearance: id={0}", args.AvatarID.ToString());
+                // the appearance information is stored in the avatar info in libomv
+                // We just kick the system to look at it
+                lock (m_opLock) {
+                    EntityName avatarEntityName = new EntityNameLL(rcontext.AssetContext, "Avatar", args.AvatarID);
+                    IEntity? ent;
+                    if (rcontext.TryGetEntity(avatarEntityName, out ent)) {
+                        ent?.Update(UpdateCodes.Appearance);
+                    }
                 }
-            }
+            });
             return;
         }
         // ===============================================================
@@ -948,6 +975,32 @@ namespace org.herbal3d.mblue.comm {
         }
 
         #region DELAYED REGION MANAGEMENT
+        delegate void QueueTilOnlineDelegate<T>(object? pSender, T pArgs) where T : EventArgs;
+        private void QueueTilOnline<T>(object? pSender, T pArgs, QueueTilOnlineDelegate<T> pCallback) where T : EventArgs {
+            // Queue the callback to be executed when online.
+            // For now, we just invoke it immediately.
+            lock (m_waitTilOnline) {
+                IRegionContext? rcontext = FindRegion(pSim);
+                if (rcontext != null && rcontext.State.isOnline) {
+                    // not queuing until later
+                    pCallback(pSender, pArgs);
+                } else {
+                    ParamBlock pb = new ParamBlock(sim, cac, p1, p2, p3, p4);
+                    m_waitTilOnline.Add(pb);
+                    // return that we queued the action
+                }
+            }
+            return;
+        }
+
+        delegate void QueueTilLaterDelegate<T>(object? pSender, T pArgs) where T : EventArgs;
+        private void QueueTilLater<T>(object? pSender, T pArgs, QueueTilLaterDelegate<T> pCallback) where T : EventArgs {
+            // Queue the callback to be executed later.
+            // For now, we just invoke it immediately.
+            pCallback(pSender, pArgs);
+            return;
+        }
+        /*
         // We get events before the sim comes online. This is a way to queue up those
         // events until we're online.
         public enum CommActionCode {
@@ -1115,6 +1168,7 @@ namespace org.herbal3d.mblue.comm {
             }
         }
         #endregion DELAYED REGION MANAGEMENT
+        */
 
 
 
