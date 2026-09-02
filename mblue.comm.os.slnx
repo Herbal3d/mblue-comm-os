@@ -2,4 +2,9 @@
   <Folder Name="/src/">
     <Project Path="src/mblue.comm.os.csproj" />
   </Folder>
+  <Project Path="../mblue-common/src/mblue.common.csproj" />
+  <Project Path="../mblue-ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj" />
+  <Project Path="../mblue-comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj" />
+  <Project Path="../libremetaverse/LibreMetaverse/LibreMetaverse.csproj" />
+  <Project Path="../libremetaverse/LibreMetaverse.StructuredData/LibreMetaverse.StructuredData.csproj" />
 </Solution>

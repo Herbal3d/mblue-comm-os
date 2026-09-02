@@ -20,17 +20,17 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('../../mblue.ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj')">
-    <ProjectReference Include="../../mblue.ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj" />
+  <ItemGroup Condition="Exists('../../mblue-ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj')">
+    <ProjectReference Include="../../mblue-ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="!Exists('../../mblue.ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj')">
+  <ItemGroup Condition="!Exists('../../mblue-ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj')">
     <PackageReference Include="mblue.ecm.Interface" Version="*" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('../../mblue.comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj')">
-    <ProjectReference Include="../../mblue.comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj" />
+  <ItemGroup Condition="Exists('../../mblue-comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj')">
+    <ProjectReference Include="../../mblue-comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="!Exists('../../mblue.comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj')">
+  <ItemGroup Condition="!Exists('../../mblue-comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj')">
     <PackageReference Include="mblue.comm.Interface" Version="*" />
   </ItemGroup>
 
@@ -48,10 +48,10 @@
     <PackageReference Include="LibreMetaverse.StructuredData" Version="*" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('../../mblue.common/src/mblue.common.csproj')">
-    <ProjectReference Include="../../mblue.common/src/mblue.common.csproj" />
+  <ItemGroup Condition="Exists('../../mblue-common/src/mblue.common.csproj')">
+    <ProjectReference Include="../../mblue-common/src/mblue.common.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="!Exists('../../mblue.common/src/mblue.common.csproj')">
+  <ItemGroup Condition="!Exists('../../mblue-common/src/mblue.common.csproj')">
     <PackageReference Include="mblue.common" Version="*" />
   </ItemGroup>
 
