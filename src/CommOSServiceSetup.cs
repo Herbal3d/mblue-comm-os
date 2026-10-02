@@ -23,9 +23,10 @@ namespace org.herbal3d.mblue.comm {
             return pServices
                 .Configure<CommOSConfig>(pConfig.GetSection(CommOSConfig.subSectionName))
                 .Configure<GridConfig>(pConfig.GetSection(GridConfig.subSectionName))
-                .AddSingleton<LLGridClient>()
-                .AddSingleton<LLAssetContext>()
+                .AddSingleton<RegionCollection>()
+                .AddSingleton<OSGridClient>()
                 .AddSingleton<ICommProvider, CommLLLP>()
+                .AddTransient<CmptOSInfo>()
             ;
         }
     }

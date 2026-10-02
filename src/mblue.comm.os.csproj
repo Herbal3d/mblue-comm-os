@@ -15,22 +15,22 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('../../mblue.ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj')">
-    <ProjectReference Include="../../mblue.ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj" />
+  <ItemGroup Condition="Exists('../../mblue-ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj')">
+    <ProjectReference Include="../../mblue-ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="!Exists('../../mblue.ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj')">
+  <ItemGroup Condition="!Exists('../../mblue-ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj')">
     <PackageReference Include="mblue.ecm.Interface" Version="*" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('../../mblue.comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj')">
-    <ProjectReference Include="../../mblue.comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj" />
+  <ItemGroup Condition="Exists('../../mblue-comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj')">
+    <ProjectReference Include="../../mblue-comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="!Exists('../../mblue.comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj')">
+  <ItemGroup Condition="!Exists('../../mblue-comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj')">
     <PackageReference Include="mblue.comm.Interface" Version="*" />
   </ItemGroup>
 
@@ -41,17 +41,10 @@
     <PackageReference Include="LibreMetaverse" Version="*" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('../../libremetaverse/LibreMetaverse.StructuredData/LibreMetaverse.StructuredData.csproj')">
-    <ProjectReference Include="../../libremetaverse/LibreMetaverse.StructuredData/LibreMetaverse.StructuredData.csproj" />
+  <ItemGroup Condition="Exists('../../mblue-common/src/mblue.common.csproj')">
+    <ProjectReference Include="../../mblue-common/src/mblue.common.csproj" />
   </ItemGroup>
-  <ItemGroup Condition="!Exists('../../libremetaverse/LibreMetaverse.StructuredData/LibreMetaverse.StructuredData.csproj')">
-    <PackageReference Include="LibreMetaverse.StructuredData" Version="*" />
-  </ItemGroup>
-
-  <ItemGroup Condition="Exists('../../mblue.common/src/mblue.common.csproj')">
-    <ProjectReference Include="../../mblue.common/src/mblue.common.csproj" />
-  </ItemGroup>
-  <ItemGroup Condition="!Exists('../../mblue.common/src/mblue.common.csproj')">
+  <ItemGroup Condition="!Exists('../../mblue-common/src/mblue.common.csproj')">
     <PackageReference Include="mblue.common" Version="*" />
   </ItemGroup>
 

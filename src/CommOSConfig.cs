@@ -29,6 +29,8 @@ namespace org.herbal3d.mblue.Config {
         public string NoTextureFilename { get; set; } = "../assets/NoTexture.png";
         public string NoSculptyFilename { get; set; } = "../assets/NoSculpty.png";
 
+        public int ParentWaitTimeoutMS { get; set; } = 5_000; // Milliseconds to wait for a parent object before giving up
+
         public ConnectionSettings Connection { get; set; } = new ConnectionSettings();
         public TimingSettings Timing { get; set; } = new TimingSettings();
         public PacketSettings Packets { get; set; } = new PacketSettings();

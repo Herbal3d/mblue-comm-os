@@ -9,36 +9,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using org.herbal3d.mblue.Common.StructuredData;
 using org.herbal3d.mblue.ecm;
 using org.herbal3d.mblue.Logging;
 
 using LMV = LibreMetaverse;
 
 namespace org.herbal3d.mblue.comm.os {
-    public class LLCmptLocation : ICmptLocation {
+    public class CmptOSLocation : ComponentBase<CmptOSLocation> {
 
-        private MBLogger<LLCmptLocation> m_log;
-        private LMV.GridClient m_client;
-        public IEntity ContainingEntity { get { return ContainingEntity; } }
-        public LLEntity ContainingLLEntity { get; private set; }
+        private MBLogger<CmptOSLocation> m_log;
+        private LMV.IGridClient m_client;
 
-        public LLCmptLocation(MBLogger<LLCmptLocation> pLog,
-                            LLEntity pContainingLLEntity,
-                            LLGridClient pClient) {
+        public CmptOSLocation(MBLogger<CmptOSLocation> pLog,
+                            LMV.IGridClient pClient,
+                            IEntity pContainingEntity) : base(pContainingEntity) {
             m_log = pLog;
-            m_client = pClient.GridClient;
-            ContainingLLEntity = pContainingLLEntity;
+            m_client = pClient;
         }
 
         private bool m_haveLocalHeading = false;
-        private LMV.Quaternion m_heading;
-        public LMV.Quaternion Heading {
+        private Quaternion m_heading;
+        public Quaternion Heading {
             get {
                 // kludge to allow the local agent to be different for dead reconning
                 if (m_haveLocalHeading) {
                     return m_heading;
                 }
-                return m_client.Self.SimRotation;
+                var sr = m_client.Self.SimRotation;
+                return new Quaternion(sr.X, sr.Y, sr.Z, sr.W);
             }
             set {
                 m_heading = value;
@@ -46,9 +45,10 @@ namespace org.herbal3d.mblue.comm.os {
             }
         }
 
-        public LMV.Vector3 LocalPosition {
+        public Vector3 LocalPosition {
             get {
-                return m_client.Self.SimPosition;
+                var lp = this.LocalPosition;
+                return new Vector3(lp.X, lp.Y, lp.Z);
             }
             set {
                 // If an object, we can set the position directly
@@ -56,9 +56,10 @@ namespace org.herbal3d.mblue.comm.os {
             }
         }
 
-        public LMV.Vector3 RegionPosition {
+        public Vector3 RegionPosition {
             get {
-                return this.LocalPosition;
+                var lp = this.LocalPosition;
+                return new Vector3(lp.X, lp.Y, lp.Z);
             }
             set {
                 // If an object, we can set the position directly
@@ -66,19 +67,16 @@ namespace org.herbal3d.mblue.comm.os {
             }
         }
 
-        public LMV.Vector3d GlobalPosition {
+        public Vector3d GlobalPosition {
             get {
-                return m_client.Self.GlobalPosition;
+                var gp = m_client.Self.GlobalPosition;
+                return new Vector3d(gp.X, gp.Y, gp.Z);
                 // return AssociatedAvatar.RegionContext.CalculateGlobalPosition(RelativePosition);
             }
         }
 
-        public void Update(UpdateCodes what) {
-            return;
-        }
-
-        public void Dispose() {
-            // nothing to do
+        public override void Dispose() {
+            base.Dispose();
         }
     }
 }

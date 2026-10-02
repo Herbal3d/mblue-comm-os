@@ -9,8 +9,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+using org.herbal3d.mblue.Common;
 using org.herbal3d.mblue.ecm;
-using org.herbal3d.mblue.Logging;
 
 using LMV = LibreMetaverse;
 
@@ -20,5 +20,39 @@ public class RegionInfo {
     public string Name { get; set; } = string.Empty;
 
     public LMV.Simulator? Simulator { get; set; } = null;
+
+    public IEntity? TerrainEntity { get; set; } = null;
+}
+
+public class RegionCollection {
+    private DualIndexDictionary<LMV.Simulator, LMV.UUID, RegionInfo> m_regionInfo = new DualIndexDictionary<LMV.Simulator, LMV.UUID, RegionInfo>();
+
+    public RegionInfo? GetRegionInfo(LMV.Simulator simulator, LMV.UUID regionId) {
+        if (m_regionInfo.TryGetValue(simulator, out var regionInfo)) {
+            return regionInfo;
+        }
+        return null;
+    }
+
+    public bool HasRegionInfo(LMV.Simulator simulator) {
+        return m_regionInfo.ContainsKey(simulator);
+    }
+
+    public bool HasRegionInfo(LMV.UUID regionId) {
+        return m_regionInfo.ContainsKey(regionId);
+    }
+
+    public bool TryGetRegionInfo(LMV.Simulator simulator, out RegionInfo? regionInfo) {
+        return m_regionInfo.TryGetValue(simulator, out regionInfo);
+    }
+
+    public bool TryGetRegionInfo(LMV.UUID pID, out RegionInfo? regionInfo) {
+        return m_regionInfo.TryGetValue(pID, out regionInfo);
+    }
+
+    public void AddRegionInfo(LMV.Simulator simulator, RegionInfo regionInfo) {
+        if (regionInfo.Simulator == null) return;
+        m_regionInfo.Add(simulator, regionInfo.Simulator.RegionID, regionInfo);
+    }
 }
 

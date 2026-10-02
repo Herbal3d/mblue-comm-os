@@ -1,8 +1,20 @@
 {
-	"folders": [
-		{
-			"path": "."
-		}
+    "folders": [
+        {
+            "path": ".",
+        },
+        {
+            "name": "mblue.ecm.Interface",
+            "path": "../mblue-ecm/src/mblue.ecm.Interface",
+        },
+        {
+            "name": "mblue.comm.Interface",
+            "path": "../mblue-comm/src/mblue.comm.Interface",
+        },
+        {
+            "name": "LibreMetaverse",
+            "path": "../libremetaverse/LibreMetaverse",
+        },
     ],
     "settings": {
         "peacock.surpriseMeOnStartup": true,
@@ -30,8 +42,11 @@
             "titleBar.activeBackground": "#7c494c",
             "titleBar.activeForeground": "#e7e7e7",
             "titleBar.inactiveBackground": "#7c494c99",
-            "titleBar.inactiveForeground": "#e7e7e799"
+            "titleBar.inactiveForeground": "#e7e7e799",
+            "activityBar.activeBorder": "#e7e7e7",
+            "activityBarTop.activeBorder": "#e7e7e7",
+            "statusBar.inactiveBackground": "#7c494c"
         },
         "peacock.color": "#7c494c",
-    }
+    },
 }

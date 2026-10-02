@@ -9,7 +9,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-using System.Globalization;
 using System.Text.Json.Nodes;
 
 using Microsoft.Extensions.Options;
@@ -27,23 +26,24 @@ namespace org.herbal3d.mblue.comm.os {
     /// This provides the pointers to the underlying CommOS system components,
     /// such as the GridClient and TerrainInfo.
     /// </summary>
-    public class CmptOSInfo : ComponentBase {
+    public class CmptOSInfo : ComponentBase<CmptOSInfo> {
         private MBLogger<CmptOSInfo> m_log;
-        private LMV.GridClient m_client;
+        private LMV.IGridClient m_client;
         private IOptions<CommOSConfig> m_config;
 
         // The region the entity is in
-        public LMV.Simulator? Region { get; set; }
-        // If the entity is terrain, this will hold dimensions and processing routines
-        public TerrainInfo? Terrain { get; set; }
+        public RegionInfo? Region { get; set; }
 
         public CmptOSInfo(MBLogger<CmptOSInfo> pLog,
-                        LMV.GridClient pClient,
-                        IOptions<CommOSConfig> pConfig)
-                        : base("CmptOSInfo") {
+                        LMV.IGridClient pClient,
+                        IOptions<CommOSConfig> pConfig,
+                        RegionInfo? pRegion,
+                        IEntity pContainingEntity)
+                        : base(pContainingEntity) {
             m_log = pLog;
             m_client = pClient;
             m_config = pConfig;
+            Region = pRegion;
         }
 
         public override JsonNode? GetDump() {

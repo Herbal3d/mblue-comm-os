@@ -2,4 +2,17 @@
   <Folder Name="/src/">
     <Project Path="src/mblue.comm.os.csproj" />
   </Folder>
+  <Project Path="../libremetaverse/LibreMetaverse.Imaging.Abstractions/LibreMetaverse.Imaging.Abstractions.csproj" />
+  <Project Path="../libremetaverse/LibreMetaverse.StructuredData/LibreMetaverse.StructuredData.csproj" />
+  <Project Path="../libremetaverse/LibreMetaverse.Types/LibreMetaverse.Types.csproj" />
+  <Project Path="../libremetaverse/LibreMetaverse/LibreMetaverse.csproj" />
+  <Project Path="../libremetaverse/SourceGenerators/AttentionsGenerator/AttentionsGenerator.csproj" />
+  <Project Path="../libremetaverse/SourceGenerators/GenepoolGenerator/GenepoolGenerator.csproj" />
+  <Project Path="../libremetaverse/SourceGenerators/PacketSourceGenerator/PacketSourceGenerator.csproj" />
+  <Project Path="../libremetaverse/SourceGenerators/SkeletonGenerator/SkeletonGenerator.csproj" />
+  <Project Path="../libremetaverse/SourceGenerators/TreesGenerator/TreesGenerator.csproj" />
+  <Project Path="../libremetaverse/SourceGenerators/VisualParamGenerator/VisualParamGenerator.csproj" />
+  <Project Path="../mblue-comm/src/mblue.comm.Interface/mblue.comm.Interface.csproj" />
+  <Project Path="../mblue-common/src/mblue.common.csproj" />
+  <Project Path="../mblue-ecm/src/mblue.ecm.Interface/mblue.ecm.Interface.csproj" />
 </Solution>

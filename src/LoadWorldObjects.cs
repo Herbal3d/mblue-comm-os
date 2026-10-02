@@ -84,8 +84,8 @@ namespace org.herbal3d.mblue.comm.os {
 
         // Return 'true' if we don't have this region in our world yet
         private static bool WeDontKnowAboutThisSimulator(LMV.Simulator sim, LMV.GridClient netComm, CommLLLP worldComm) {
-            LLRegionContext? regn = worldComm.FindRegion(sim);
-            return (regn == null);
+            RegionInfo? regn = worldComm.FindRegion(sim);
+            return (regn is null);
         }
 
         private void AddAvatars(LMV.Simulator sim, LMV.GridClient netComm, CommLLLP worldComm) {

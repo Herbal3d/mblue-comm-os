@@ -9,25 +9,17 @@ connected to the ECM system.
 
 # OpenSimulator Contents in the ECM
 
-The connection to the OpenSimulator grid is represented by an ECM `IEntity`
-that has a `LLCmptWorld` component. The `LLCmptWorld` component is the handle
-to the user's identity and authentication and keeps the connections to the
-simulator and has handles to the various interface to communicating with
-the simulator. 
+As information about the OpenSimulator world are received, entries in
+ECM are created. The IEntity is created and Components are added depending
+on the type of entity.
 
-`LLCmptWorld` contains:
+Components added to entities:
 
-- user login parameters
-- user login response (the block of parameters returned by the OpenSimulator server)
-- list of regions
+| COMPONENT       | CONTAINS AND WHEN ADDED |
+| :---:           | :---: |
+| CmptOSInfo      | pointers back to the LibreMetaverse structures. `IGridClient` in particular. |
+| LLCmptLocation  | wrapper for ICmptLocation which links into the LibreMetaverse data structures. |
+| LLCmptAnimation | added if the entity has an animation attached to it. |
+| LLCmptDisplayable | wrapper for ICmptDisplayable that contains the converted display information. |
+| LLCmptAvatar    | added if an avatar. |
 
-The `ICommProvider` for the OpenSimulator connection (`CommLLLP`) uses `LLCmptWorld`
-as the storage for structures relating to the connection. As listed above,
-that includes the information about the login session and the regions that
-are being tracked.
-
-As information about entities are received by by `CommLLLP`, entities are created
-and added to `mblue.ecm`. These entities will contain components that point
-back to the structures built by `LibreMetaverse` and, except what is required
-for graphics display (mostly the built `IDisplayable`), this tries to not create
-new infrastructure between the communication system and the eventual display.

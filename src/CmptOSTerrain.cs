@@ -15,9 +15,9 @@ using org.herbal3d.mblue.Logging;
 using LMV = LibreMetaverse;
 
 namespace org.herbal3d.mblue.comm.os {
-    public class TerrainInfo {
+    public class CmptOSTerrain : ComponentBase<CmptOSTerrain> {
 
-        private MBLogger<TerrainInfo> m_log;
+        private MBLogger<CmptOSTerrain> m_log;
         public float[,] HeightMap { get; protected set; } = new float[256, 256];
 
         public int HeightMapWidth { get; protected set; } = 256;
@@ -42,24 +42,23 @@ namespace org.herbal3d.mblue.comm.os {
         protected LMV.Simulator? m_simulator;
         public LMV.Simulator? Simulator { get { return m_simulator; } }
 
-        public LLTerrainInfo(MBLogger<TerrainInfo> pLog,
-                            LLRegionContext pRContext,
-                            LLAssetContext pAContext)
-                    : base(pLog, pWorld, pRContext, pAContext) {
+        public CmptOSTerrain(MBLogger<CmptOSTerrain> pLog,
+                             IEntity? pTerrainEntity
+                             ) : base(pTerrainEntity) {
             m_log = pLog;
             TerrainPatchStride = 16;
             TerrainPatchLength = 256;
             TerrainPatchWidth = 256;
-            UpdateHeightMap(pRContext);
+            UpdateHeightMap(null);
         }
 
-        public override void UpdatePatch(LLRegionContext reg, int x, int y, float[] data) {
+        public void UpdatePatch(RegionInfo reg, int x, int y, float[] data) {
             // even though I am passed the data, I rely on Comm.Client to save it for me
             UpdateHeightMap(reg);
             return;
         }
 
-        private void UpdateHeightMap(LLRegionContext reg) {
+        private void UpdateHeightMap(RegionInfo? reg) {
             int stride = TerrainPatchStride;
             int stride2 = stride * TerrainPatchWidth;
 
@@ -68,15 +67,21 @@ namespace org.herbal3d.mblue.comm.os {
                 float minHeight = 999999f;
                 float maxHeight = 0f;
 
-                if ((reg == null) || !(reg is LLRegionContext)) {
+                if (reg is null) {
                     // things are not set up so create a default, flat heightmap
-                    m_log.Log(MBLogLevel.DWORLDDETAIL, "LLTerrainInfo: Building default zero terrain");
+                    m_log.Log(MBLogLevel.DWORLDDETAIL, "TerrainInfo: Building default zero terrain");
                     CreateZeroHeight(ref newHM);
                     minHeight = maxHeight = 0f;
                 } else {
                     try {
-                        LLRegionContext llreg = (LLRegionContext)reg;
-                        LMV.Simulator sim = llreg.Simulator;
+                        RegionInfo llreg = (RegionInfo)reg;
+                        LMV.Simulator? sim = llreg.Simulator;
+                        if (sim == null) {
+                            m_log.Log(MBLogLevel.DWORLDDETAIL, "TerrainInfo: Simulator is null");
+                            CreateZeroHeight(ref newHM);
+                            minHeight = maxHeight = 0f;
+                            return;
+                        }
 
                         int nullPatchCount = 0;
                         for (int px = 0; px < stride; px++) {
@@ -107,11 +112,11 @@ namespace org.herbal3d.mblue.comm.os {
                             }
                         }
                         // m_log.Log(MBLogLevel.DWORLDDETAIL,
-                        //         "LLTerrainInfo: UpdateHeightMap: {0} null patches = {1}", sim.Name, nullPatchCount);
+                        //         "TerrainInfo: UpdateHeightMap: {0} null patches = {1}", sim.Name, nullPatchCount);
                     } catch {
                         // this usually happens when first starting a region
                         m_log.Log(MBLogLevel.DWORLDDETAIL,
-                                "LLTerrainInfo: Exception building terrain. Defaulting to zero.");
+                                "TerrainInfo: Exception building terrain. Defaulting to zero.");
                         CreateZeroHeight(ref newHM);
                         minHeight = maxHeight = 0f;
                     }
@@ -122,7 +127,7 @@ namespace org.herbal3d.mblue.comm.os {
                 MinimumHeight = minHeight;
                 MaximumHeight = maxHeight;
                 m_log.Log(MBLogLevel.DWORLDDETAIL,
-                        "LLTerrainInfo: New terrain:"
+                        "TerrainInfo: New terrain:"
                         + " min=" + MinimumHeight.ToString()
                         + " max=" + MaximumHeight.ToString()
                     );

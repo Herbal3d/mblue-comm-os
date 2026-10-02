@@ -19,14 +19,14 @@ namespace org.herbal3d.mblue.comm {
     /// Singleton class to hold the creation and instance of GridClient for LLLP communication.
     /// Makes it easy to get the reference to the GridClient into instances.
     /// </summary>
-    public sealed class LLGridClient {
-        private MBLogger<LLGridClient> m_Log;
-        public LLGridClient(MBLogger<LLGridClient> pLog) {
+    public sealed class OSGridClient {
+        private MBLogger<OSGridClient> m_Log;
+        public OSGridClient(MBLogger<OSGridClient> pLog) {
             m_Log = pLog;
         }
 
-        public LMV.GridClient? m_GridClient = null;
-        public LMV.GridClient GridClient {
+        public LMV.IGridClient? m_GridClient = null;
+        public LMV.IGridClient GridClient {
             get {
                 if (m_GridClient == null) {
                     m_Log.Log(MBLogLevel.Information, "Creating new GridClient");
