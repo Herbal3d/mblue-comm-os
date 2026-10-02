@@ -44,6 +44,15 @@
   <ItemGroup Condition="Exists('../../mblue-common/src/mblue.common.csproj')">
     <ProjectReference Include="../../mblue-common/src/mblue.common.csproj" />
   </ItemGroup>
+
+  <ItemGroup Condition="!Exists('../../libremetaverse/LibreMetaverse.StructuredData/LibreMetaverse.StructuredData.csproj')">
+    <PackageReference Include="LibreMetaverse.StructuredData" Version="*" />
+  </ItemGroup>
+
+  <ItemGroup Condition="Exists('../../mblue-common/src/mblue.common.csproj')">
+    <ProjectReference Include="../../mblue-common/src/mblue.common.csproj" />
+  </ItemGroup>
+
   <ItemGroup Condition="!Exists('../../mblue-common/src/mblue.common.csproj')">
     <PackageReference Include="mblue.common" Version="*" />
   </ItemGroup>
