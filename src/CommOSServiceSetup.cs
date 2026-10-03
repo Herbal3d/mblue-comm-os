@@ -26,6 +26,7 @@ namespace org.herbal3d.mblue.comm {
                 .AddSingleton<RegionCollection>()
                 .AddSingleton<OSGridClient>()
                 .AddSingleton<ICommProvider, CommLLLP>()
+                .AddSingleton<Grids>()
                 .AddTransient<CmptOSInfo>()
             ;
         }
