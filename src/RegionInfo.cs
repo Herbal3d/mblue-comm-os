@@ -22,12 +22,19 @@ public class RegionInfo {
     public LMV.Simulator? Simulator { get; set; } = null;
 
     public IEntity? TerrainEntity { get; set; } = null;
+
+    public RegionInfo(LMV.Simulator pNewSim) {
+        Name = pNewSim.Name;
+        Simulator = pNewSim;
+
+        TerrainEntity = null;
+    }
 }
 
 public class RegionCollection {
     private DualIndexDictionary<LMV.Simulator, LMV.UUID, RegionInfo> m_regionInfo = new DualIndexDictionary<LMV.Simulator, LMV.UUID, RegionInfo>();
 
-    public RegionInfo? GetRegionInfo(LMV.Simulator simulator, LMV.UUID regionId) {
+    public RegionInfo? GetRegionInfo(LMV.Simulator simulator) {
         if (m_regionInfo.TryGetValue(simulator, out var regionInfo)) {
             return regionInfo;
         }
@@ -50,9 +57,9 @@ public class RegionCollection {
         return m_regionInfo.TryGetValue(pID, out regionInfo);
     }
 
-    public void AddRegionInfo(LMV.Simulator simulator, RegionInfo regionInfo) {
-        if (regionInfo.Simulator == null) return;
-        m_regionInfo.Add(simulator, regionInfo.Simulator.RegionID, regionInfo);
+    public void AddRegionInfo(RegionInfo pRegionInfo) {
+        if (pRegionInfo.Simulator == null) return;
+        m_regionInfo.Add(pRegionInfo.Simulator, pRegionInfo.Simulator.RegionID, pRegionInfo);
     }
 }
 

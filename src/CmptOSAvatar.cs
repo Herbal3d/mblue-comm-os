@@ -18,7 +18,7 @@ namespace org.herbal3d.mblue.comm.os {
     public class CmptOSAvatar : ComponentBase<CmptOSAvatar>, ICmptAvatar {
 
         private MBLogger<CmptOSAvatar> m_log;
-        private LMV.IGridClient m_client;
+        private OSGridClient m_client;
 
         public LMV.UUID? AvatarUUID { get; set; }
 
@@ -26,7 +26,7 @@ namespace org.herbal3d.mblue.comm.os {
         public string ActivityFlags { get; set; } = ""; // e.g. "Sitting, AFK"
 
         public CmptOSAvatar(MBLogger<CmptOSAvatar> pLog,
-                                LMV.IGridClient pClient,
+                                OSGridClient pClient,
                                 IEntity pContainingEntity
                                 ) : base(pContainingEntity) {
             m_log = pLog;
@@ -36,7 +36,7 @@ namespace org.herbal3d.mblue.comm.os {
         public string FullName {
             get {
                 if (AvatarUUID.HasValue) {
-                    var avName = m_client.Self.Name;
+                    var avName = m_client.GridClient.Self.Name;
                     if (avName != null) {
                         return avName.ToString();
                     } else {
@@ -50,7 +50,7 @@ namespace org.herbal3d.mblue.comm.os {
         public string First {
             get {
                 if (AvatarUUID.HasValue) {
-                    var avName = m_client.Self.FirstName;
+                    var avName = m_client.GridClient.Self.FirstName;
                     if (avName != null) {
                         return avName.ToString();
                     } else {
@@ -64,7 +64,7 @@ namespace org.herbal3d.mblue.comm.os {
         public string Last {
             get {
                 if (AvatarUUID.HasValue) {
-                    var avName = m_client.Self.LastName;
+                    var avName = m_client.GridClient.Self.LastName;
                     if (avName != null) {
                         return avName.ToString();
                     } else {

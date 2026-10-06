@@ -114,10 +114,12 @@ public class CommLLLP : ICommProvider {
         m_regionCollection = pRegionCollection;
         m_version = pVersion;
         // m_waitTilLater = pQueueManager.CreateBasicWorkQueue("CommLLLP WaitTilLater");
+
+        m_log.Log(MBLogLevel.DCOMM, "CommLLLP constructor completed");
     }
 
     public async Task StartAsync(CancellationToken cancellationToken) {
-        m_log.Log(MBLogLevel.DRESTDETAIL, "CommLLLP ExecuteAsync entered");
+        m_log.Log(MBLogLevel.DCOMM, "CommLLLP StartAsync entered");
         m_cancellationToken = cancellationToken;
 
         InitConnectionFramework();
@@ -155,7 +157,7 @@ public class CommLLLP : ICommProvider {
         }
         DisconnectConnectionFramework();
 
-        m_log.Log(MBLogLevel.DCOMM, "KeepLoggingIn: exiting keep loggin in thread");
+        m_log.Log(MBLogLevel.DCOMM, "CommLLLP StartAsync exiting");
     }
 
     public Task StopAsync(CancellationToken cancellationToken) {
@@ -249,7 +251,7 @@ public class CommLLLP : ICommProvider {
             gc.Settings.Packets.ThrottleOutgoing = false;
             */
 
-            // gc.Network.LoginProgress += Network_LoginProgress;
+            gc.Network.LoginProgress += Network_LoginProgress;
             gc.Network.Disconnected += Network_Disconnected;
             gc.Network.SimConnected += Network_SimConnected;
             gc.Network.EventQueueRunning += Network_EventQueueRunning;
@@ -275,7 +277,7 @@ public class CommLLLP : ICommProvider {
     }
     private void DisconnectConnectionFramework() {
         var gc = m_gridClient.GridClient;
-        // gc.Network.LoginProgress -= Network_LoginProgress;
+        gc.Network.LoginProgress -= Network_LoginProgress;
         gc.Network.Disconnected -= Network_Disconnected;
         gc.Network.SimConnected -= Network_SimConnected;
         gc.Network.EventQueueRunning -= Network_EventQueueRunning;
@@ -293,7 +295,6 @@ public class CommLLLP : ICommProvider {
         gc.Terrain.LandPatchReceived -= Terrain_LandPatchReceived;
     }
 
-    // ICommProvider.StartLogin()
     /// <summary>
     /// Called by the REST handler to connect to a simulator.
     /// The login parameters are passed in which is the autorization info.
@@ -301,7 +302,7 @@ public class CommLLLP : ICommProvider {
     /// </summary>
     /// <param name="pLoginParams"></param>
     /// <returns></returns>
-    public async Task<LoginResponse?> StartLogin(LoginParams pLoginParams, CancellationToken cancellationToken) {
+    async Task<LoginResponse?> ICommProvider.StartLogin(LoginParams pLoginParams, CancellationToken cancellationToken) {
         // Are we already logged in?
         if (IsLoggedIn) {
             return null;
@@ -317,14 +318,14 @@ public class CommLLLP : ICommProvider {
     }
 
     // ICommProvider.StartLogout()
-    public virtual async Task<bool> StartLogout(CancellationToken cancellationToken) {
+    async Task<bool> ICommProvider.StartLogout(CancellationToken cancellationToken) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "Disconnect request -- logout and disconnect");
         m_loginState = LoginStateCode.ShouldLogOut;
         return true;
     }
 
     // ICommProvider.StartTeleport()
-    public virtual async Task<bool> StartTeleport(string dest, CancellationToken cancellationToken) {
+    async Task<bool> ICommProvider.StartTeleport(string dest, CancellationToken cancellationToken) {
         bool ret = true;
         string sim = "";
         float x = 128;
@@ -382,47 +383,12 @@ public class CommLLLP : ICommProvider {
                                             m_version.AppVersion
         );
 
-        // Select sim in the grid
-        // the format that we must pass is "uri:sim&x&y&z" or the strings "home" or "last"
-        // The user inputs either "home", "last", "sim" or "sim/x/y/z"
-        string loginSetting = "";
         string startLoc = pLoginParams.StartLocation ?? "";
-        if (!String.IsNullOrEmpty(startLoc)) {
-            try {
-                // User specified a sim. In the form of "simname/x/y/z" where the coords are optional.
-                char sep = '/';
-                string[] parts = System.Uri.UnescapeDataString(startLoc).ToLower().Split(sep);
-                if (parts.Length > 0) {
-                    // since the name comes in through the web page, spaces get turned into pluses
-                    parts[0] = parts[0].Replace('+', ' ');
-                }
-                loginSetting = parts[0];    // default to just the sim name
-                if (parts.Length == 1) {
-                    // just specifying last or home or just a simulator
-                    if (parts[0] == "last" || parts[0] == "home") {
-                        m_log.Log(MBLogLevel.DCOMM, $"StartLogin: prev location of {parts[0]}");
-                        loginSetting = parts[0];
-                    } else {
-                        // put the user in the center of the specified sim
-                        loginSetting = LMV.NetworkManager.StartLocation(parts[0], 128, 128, 40);
-                        m_log.Log(MBLogLevel.DCOMM, $"StartLogin: user spec middle of {parts[0]} -> {loginSetting}");
-                    }
-                }
-                if (parts.Length == 4) {
-                    int posX = int.Parse(parts[1]);
-                    int posY = int.Parse(parts[2]);
-                    int posZ = int.Parse(parts[3]);
-                    loginSetting = LMV.NetworkManager.StartLocation(parts[0], posX, posY, posZ);
-                    m_log.Log(MBLogLevel.DCOMM, $"StartLogin: user spec start at {parts[0]}/{posX}/{posY}/{posZ} -> {loginSetting}");
-                }
-            } catch {
-                loginSetting = "";
-            }
-        }
-        // if we didn't get anything useful, default to last
-        loginParams.Start = String.IsNullOrEmpty(loginSetting) ? "last" : loginSetting;
+        loginParams.Start = String.IsNullOrEmpty(startLoc) ? "last" : startLoc;
 
-        m_grids.SetCurrentGrid(pLoginParams.Grid ?? "HippoGrid");
+        string startGrid = pLoginParams.Grid ?? "";
+        m_grids.SetCurrentGrid(String.IsNullOrEmpty(startGrid) ? "HippoGrid" : startGrid);
+
         var loginURI = m_grids.GridLoginURI(m_grids.CurrentGrid);
 
         if (String.IsNullOrEmpty(loginURI)) {
@@ -471,6 +437,14 @@ public class CommLLLP : ICommProvider {
         return errLoginResponse;
     }
 
+    // ===============================================================
+    public virtual void Network_LoginProgress(object? sender, LMV.LoginProgressEventArgs args) {
+        // m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Network_LoginProgress: Login progress update");
+        m_stats.NetLoginProgress.Event();
+        m_log.Log(MBLogLevel.DCOMM, $"Login progress: status: {args.Status}, message: {args.Message}");
+    }
+
+    // ===============================================================
     public virtual void Network_Disconnected(object? sender, LMV.DisconnectedEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Network_Disconnected: Disconnected from simulator");
         m_stats.NetDisconnected.Event();
@@ -483,7 +457,10 @@ public class CommLLLP : ICommProvider {
     public virtual void Network_SimConnected(object? sender, LMV.SimConnectedEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Network_SimConnected: Simulator connected");
         m_stats.NetSimConnected.Event();
-        m_log.Log(MBLogLevel.DWORLD, "Network_SimConnected: Simulator connected {0}", args.Simulator.Name);
+        if (!m_regionCollection.HasRegionInfo(args.Simulator)) {
+            m_log.Log(MBLogLevel.DWORLD, $"Network_SimConnected: Simulator not in region collection. Adding region {args.Simulator.Name}");
+            m_regionCollection.AddRegionInfo(new RegionInfo(args.Simulator));
+        }
     }
 
     // ===============================================================
@@ -545,7 +522,9 @@ public class CommLLLP : ICommProvider {
     // ===============================================================
     public void Objects_ObjectUpdate(object? sender, LMV.PrimEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_ObjectUpdate: Object update received");
-        QueueTilOnline<LMV.PrimEventArgs>(sender, args, (sender, args) => {
+        RegionInfo? rit = m_regionCollection.GetRegionInfo(args.Simulator);
+
+        QueueTilOnline<LMV.PrimEventArgs>(args.Simulator, sender, args, (sender, args, ri) => {
             if (args.IsAttachment) {
                 Objects_AttachmentUpdate(sender, args);
                 return;
@@ -554,8 +533,6 @@ public class CommLLLP : ICommProvider {
             m_stats.ObjObjectUpdate.Event();
 
             Task.Run(async () => {
-                RegionInfo? ri = m_regionCollection.GetRegionInfo(args.Simulator, args.Simulator.RegionID);
-                if (ri == null) return;
 
                 // Wait for the parent entity to exist if needed (children are relative to their parent)
                 if (await WaitForParentIfNeeded(args.Prim.ParentID))
@@ -709,13 +686,13 @@ public class CommLLLP : ICommProvider {
     // The packet library has updated the attachement points in the prim already
     // This needs to get the attachment loaded into the world
     public void Objects_AttachmentUpdate(object? sender, LMV.PrimEventArgs args) {
-        QueueTilOnline<LMV.PrimEventArgs>(sender, args, (sender, args) => {
+        RegionInfo? rit = m_regionCollection.GetRegionInfo(args.Simulator);
+
+        QueueTilOnline<LMV.PrimEventArgs>(args.Simulator, sender, args, (sender, args, ri) => {
             m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_AttachmentUpdate: Attachment update received");
             m_stats.ObjAttachmentUpdate.Event();
 
             Task.Run(async () => {
-                RegionInfo? ri = m_regionCollection.GetRegionInfo(args.Simulator, args.Simulator.RegionID);
-                if (ri == null) return;
 
                 // Wait for the parent entity to exist if needed (children are relative to their parent)
                 if (await WaitForParentIfNeeded(args.Prim.ParentID))
@@ -757,7 +734,9 @@ public class CommLLLP : ICommProvider {
     // ===============================================================
     private void Objects_TerseObjectUpdate(object? sender, LMV.TerseObjectUpdateEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_TerseObjectUpdate: Terse object update received");
-        QueueTilOnline<LMV.TerseObjectUpdateEventArgs>(sender, args, (sender, args) => {
+        RegionInfo? rit = m_regionCollection.GetRegionInfo(args.Simulator);
+
+        QueueTilOnline<LMV.TerseObjectUpdateEventArgs>(args.Simulator, sender, args, (sender, args, ri) => {
             if (args.Simulator == null) {
                 m_log.Log(MBLogLevel.DBADERROR, "TerseObjectUpdate: Simulator is null");
                 return;
@@ -771,11 +750,6 @@ public class CommLLLP : ICommProvider {
             m_stats.ObjTerseUpdate.Event();
 
             Task.Run(async () => {
-                RegionInfo? ri = m_regionCollection.GetRegionInfo(args.Simulator, args.Simulator.RegionID);
-                if (ri == null) {
-                    m_log.Log(MBLogLevel.DBADERROR, "TerseObjectUpdate: no region context for simulator {0}", args.Simulator.Name);
-                    return;
-                }
 
                 if (await WaitForParentIfNeeded(args.Prim.ParentID))
                     return;
@@ -823,13 +797,11 @@ public class CommLLLP : ICommProvider {
     // ===============================================================
     public void Objects_AvatarUpdate(object? sender, LMV.AvatarUpdateEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_AvatarUpdate: Avatar update received");
-        QueueTilOnline<LMV.AvatarUpdateEventArgs>(sender, args, (sender, args) => {
+
+        RegionInfo? rit = FindRegion(args.Simulator);
+
+        QueueTilOnline<LMV.AvatarUpdateEventArgs>(args.Simulator, sender, args, (sender, args, ri) => {
             Task.Run(async () => {
-                RegionInfo? ri = FindRegion(args.Simulator);
-                if (ri == null) {
-                    m_log.Log(MBLogLevel.DBADERROR, "AvatarUpdate: no region context for simulator {0}", args.Simulator.Name);
-                    return;
-                }
 
                 if (await WaitForParentIfNeeded(args.Avatar.ParentID))
                     return;
@@ -869,8 +841,9 @@ public class CommLLLP : ICommProvider {
     // ===============================================================
     public virtual void Objects_KillObject(object? sender, LMV.KillObjectEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_KillObject: Object kill received");
-        QueueTilOnline<LMV.KillObjectEventArgs>(sender, args, (sender, args) => {
+        RegionInfo? rit = FindRegion(args.Simulator);
 
+        QueueTilOnline<LMV.KillObjectEventArgs>(args.Simulator, sender, args, (sender, args, ri) => {
             m_stats.ObjKillObject.Event();
             m_log.Log(MBLogLevel.DWORLDDETAIL, "Object killed:");
 
@@ -889,7 +862,9 @@ public class CommLLLP : ICommProvider {
     // ===============================================================
     public virtual void Avatars_AvatarAppearance(object? sender, LMV.AvatarAppearanceEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Avatars_AvatarAppearance: Avatar appearance received");
-        QueueTilOnline<LMV.AvatarAppearanceEventArgs>(sender, args, (sender, args) => {
+        RegionInfo? rit = FindRegion(args.Simulator);
+
+        QueueTilOnline<LMV.AvatarAppearanceEventArgs>(args.Simulator, sender, args, (sender, args, ri) => {
             m_log.Log(MBLogLevel.DCOMMDETAIL, "AvatarAppearance: id={0}", args.AvatarID.ToString());
 
             // the appearance information is stored in the avatar info in libomv
@@ -939,213 +914,77 @@ public class CommLLLP : ICommProvider {
         return foundRegion;
     }
 
-    delegate void QueueTilOnlineDelegate<T>(object? pSender, T pArgs) where T : EventArgs;
-    private void QueueTilOnline<T>(object? pSender, T pArgs, QueueTilOnlineDelegate<T> pCallback) where T : EventArgs {
-        // For the moment, just do the operation.
-        // Not sure this is still needed with the new async use in LibreMetaverse.
-        // There used to be a problem of getting object events before the simulator was fully connected.
-        pCallback(pSender, pArgs);
-        /*
-        // Queue the callback to be executed when online.
-        lock (m_waitTilOnline) {
-            IRegionContext? rcontext = FindRegion(pSim);
-            if (rcontext != null && rcontext.State.isOnline) {
-                // not queuing until later
-                pCallback(pSender, pArgs);
-            } else {
-                ParamBlock pb = new ParamBlock(sim, cac, p1, p2, p3, p4);
-                m_waitTilOnline.Add(pb);
-                // return that we queued the action
+    // There are object events that are received before the simulator is fully online.
+    // These events need to be queued until the simulator is ready.
+    delegate void QueueTilOnlineDelegate<T>(object? pSender, T pArgs, RegionInfo pRi) where T : EventArgs;
+    private List<SavedEvent> m_waitTilOnline = new List<SavedEvent>();
+
+    private struct SavedEvent {
+        public RegionInfo? Region;
+        public LMV.Simulator? Simulator;
+        public object? Sender;
+        public EventArgs Args;
+        public Type ArgsType;
+        public Delegate Callback;
+    }
+
+    // We receive object events before the simulator is fully online. This method queues them until the simulator is ready.
+    private void QueueTilOnline<T>(LMV.Simulator? pSim, object? pSender, T pArgs, QueueTilOnlineDelegate<T> pCallback) where T : EventArgs {
+        if (pSim is not null) {
+            if (pSim.IsEventQueueRunning() && pSim.IsRunning) {
+                pCallback(pSender, pArgs, FindRegion(pSim));
+                return;
             }
         }
-        */
+        // Above tests failed so this event needs to be queued until the simulator is online.
+        m_log.Log(MBLogLevel.DCOMMDETAIL, $"Queueing waiting event of type {typeof(T).Name} for simulator {pSim?.Name ?? "unknown"}");
+        // DEBUG DEBUG
+        if (pSim is null) {
+            m_log.Log(MBLogLevel.DCOMMDETAIL, $"Queueing because pSim is null");
+        } else {
+            if (pSim.IsEventQueueRunning() is false)
+                m_log.Log(MBLogLevel.DCOMMDETAIL, $"Queueing because simulator event queue is not running");
+            if (pSim.IsRunning is false)
+                m_log.Log(MBLogLevel.DCOMMDETAIL, $"Queueing because simulator is not running");
+        }
+        // end DEBUG DEBUG
+        lock (m_waitTilOnline) {
+            m_waitTilOnline.Add(new SavedEvent {
+                Region = null,
+                Simulator = pSim,
+                Sender = pSender,
+                Args = pArgs,
+                Callback = pCallback,
+                ArgsType = typeof(T)
+            });
+        }
         return;
     }
 
     // Function to process any events that were waiting for the simulator to come online.
     // See the implementation of QueueTilOnline for how events are queued until the simulator is online.
     private void DoAnyWaitingEvents(LMV.Simulator pSimulator) {
-        // For the moment, no events are saved yet.
-        return;
-    }
-
-    /*
-    delegate void QueueTilLaterDelegate<T>(object? pSender, T pArgs) where T : EventArgs;
-    private void QueueTilLater<T>(object? pSender, T pArgs, QueueTilLaterDelegate<T> pCallback) where T : EventArgs {
-        // Queue the callback to be executed later.
-        // For now, we just invoke it immediately.
-        pCallback(pSender, pArgs);
-        return;
-    }
-    // We get events before the sim comes online. This is a way to queue up those
-    // events until we're online.
-    public enum CommActionCode {
-        RegionStateChange,
-        OnObjectDataBlockUpdated,
-        OnObjectUpdated,
-        TerseObjectUpdate,
-        OnAttachmentUpdate,
-        KillObject,
-        OnAvatarUpdate,
-        OnAvatarAppearance
-    }
-
-    protected struct ParamBlock {
-        public LMV.Simulator sim;
-        public CommActionCode cac;
-        public object? p1; public object? p2; public object? p3; public object? p4;
-        public ParamBlock(LMV.Simulator psim, CommActionCode pcac, object? pp1, object? pp2, object? pp3, object? pp4) {
-            sim = psim; cac = pcac; p1 = pp1; p2 = pp2; p3 = pp3; p4 = pp4;
-        }
-    }
-    // ======================================================================
-    private void QueueTilLater(LMV.Simulator sim, CommActionCode cac, object? p1) {
-        QueueTilLater(sim, cac, p1, null, null, null);
-    }
-
-    private void QueueTilLater(LMV.Simulator sim, CommActionCode cac, object? p1, object? p2) {
-        QueueTilLater(sim, cac, p1, p2, null, null);
-    }
-
-    private void QueueTilLater(LMV.Simulator sim, CommActionCode cac, object? p1, object? p2, object? p3) {
-        QueueTilLater(sim, cac, p1, p2, p3, null);
-    }
-
-    /// <summary>
-    /// Queue the operation to be done later. This is used for waiting for the parent of
-    /// a prim. The type of queuing done makes it wait for a default delay before trying
-    /// the operation so this, in theory, waits for the parent.
-    /// </summary>
-    /// <param name="sim"></param>
-    /// <param name="cac"></param>
-    /// <param name="p1"></param>
-    /// <param name="p2"></param>
-    /// <param name="p3"></param>
-    /// <param name="p4"></param>
-    private void QueueTilLater(LMV.Simulator sim, CommActionCode cac, object? p1, object? p2, object? p3, object? p4) {
-        // m_log.Log(MBLogLevel.DCOMMDETAIL, "QueueTilLater: c={0}", cac);
-        Object[] parms = { sim, cac, p1, p2, p3, p4 };
-        m_waitTilLater.DoLaterInitialDelay(QueueTilLaterDoIt, parms);
-        return;
-    }
-
-    private bool QueueTilLaterDoIt(DoLaterJob dlb, Object p) {
-        Object[] parms = (Object[])p;
-        CommActionCode cac = (CommActionCode)parms[1];
-        // m_log.Log(MBLogLevel.DCOMMDETAIL, "QueueTilLaterDoIt: c={0}", cac);
-        RegionAction(cac, parms[2], parms[3], parms[4], parms[5]);
-        return true;
-    }
-
-    // ======================================================================
-    private bool QueueTilOnline(LMV.Simulator sim, CommActionCode cac, object? p1) {
-        return QueueTilOnline(sim, cac, p1, null, null, null);
-    }
-
-    private bool QueueTilOnline(LMV.Simulator sim, CommActionCode cac, object? p1, object? p2) {
-        return QueueTilOnline(sim, cac, p1, p2, null, null);
-    }
-
-    private bool QueueTilOnline(LMV.Simulator sim, CommActionCode cac, object? p1, object? p2, object? p3) {
-        return QueueTilOnline(sim, cac, p1, p2, p3, null);
-    }
-
-    /// <summary>
-    ///  Check to see if this action can happen now or has to be queued for later.
-    /// </summary>
-    /// <param name="rcontext"></param>
-    /// <param name="cac"></param>
-    /// <param name="p1"></param>
-    /// <param name="p2"></param>
-    /// <param name="p3"></param>
-    /// <param name="p4"></param>
-    /// <returns>true if the action was queued, false if the action should be done</returns>
-    private bool QueueTilOnline(LMV.Simulator sim, CommActionCode cac, object? p1, object? p2, object? p3, object? p4) {
-        bool ret = false;
+        m_log.Log(MBLogLevel.DCOMMDETAIL, $"Processing any waiting events for simulator {pSimulator.Name}");
+        // Iterate through the list of saved events and process those that belong to the given simulator.
+        var eventsToProcess = new List<SavedEvent>();
         lock (m_waitTilOnline) {
-            IRegionContext? rcontext = FindRegion(sim);
-            if (rcontext != null && rcontext.State.isOnline) {
-                // not queuing until later
-                ret = false;
-            } else {
-                ParamBlock pb = new ParamBlock(sim, cac, p1, p2, p3, p4);
-                m_waitTilOnline.Add(pb);
-                // return that we queued the action
-                ret = true;
-            }
+            eventsToProcess = m_waitTilOnline.Where(e => e.Simulator == pSimulator).ToList();
+            m_waitTilOnline.RemoveAll(e => e.Simulator == pSimulator);
         }
-        return ret;
-    }
-
-    private void DoAnyWaitingEvents(LMV.Simulator sim) {
-        m_log.Log(MBLogLevel.DCOMMDETAIL, "DoAnyWaitingEvents: examining {0} queued events", m_waitTilOnline.Count);
-        List<ParamBlock> m_queuedActions = new List<ParamBlock>();
-        lock (m_waitTilOnline) {
-            // get out all of teh actions saved for this sim
-            foreach (ParamBlock pb in m_waitTilOnline) {
-                if (pb.sim == sim) {
-                    m_queuedActions.Add(pb);
+        m_log.Log(MBLogLevel.DCOMMDETAIL, $"Found {eventsToProcess.Count} waiting events for simulator {pSimulator.Name} in queue of {m_waitTilOnline.Count} waiing event");
+        foreach (SavedEvent savedEvent in eventsToProcess) {
+            if (savedEvent.Region?.Simulator == pSimulator) {
+                // If the region info was not present when the event was queued, try to find it using the simulator reference.
+                RegionInfo? regionInfo = savedEvent.Region ?? FindRegion(pSimulator);
+                if (regionInfo is null) {
+                    m_log.Log(MBLogLevel.DBADERROR, $"DoAnyWaitingEvents: No region context for simulator {pSimulator.Name} for event of type {savedEvent.ArgsType.Name}");
+                    continue;
                 }
-            }
-            // remove the entries for the sim
-            foreach (ParamBlock pb in m_queuedActions) {
-                m_waitTilOnline.Remove(pb);
+                m_log.Log(MBLogLevel.DCOMMDETAIL, $"Processing waiting event of type {savedEvent.ArgsType.Name} in region {regionInfo.Name}");
+                Task.Run(() => savedEvent.Callback.DynamicInvoke(savedEvent.Sender, savedEvent.Args, regionInfo));
+                // savedEvent.Callback.DynamicInvoke(savedEvent.Sender, savedEvent.Args, regionInfo);
             }
         }
-        // process each of the actions. If they should stay queued, they will get requeued
-        m_log.Log(MBLogLevel.DCOMMDETAIL, "DoAnyWaitingEvents: processing {0} queued events", m_queuedActions.Count);
-        foreach (ParamBlock pb in m_queuedActions) {
-            RegionAction(pb.cac, pb.p1, pb.p2, pb.p3, pb.p4);
-        }
+        return;
     }
-
-    public void RegionAction(CommActionCode cac, Object p1, Object p2, Object p3, Object p4) {
-        try {
-            switch (cac) {
-                case CommActionCode.RegionStateChange:
-                    // m_log.Log(MBLogLevel.DCOMMDETAIL, "RegionAction: RegionStateChange");
-                    // NOTE that this goes straight to the status update routine
-                    ((IRegionContext)p1).Update((UpdateCodes)p2);
-                    break;
-                case CommActionCode.OnObjectDataBlockUpdated:
-                    // m_log.Log(MBLogLevel.DCOMMDETAIL, "RegionAction: OnObjectDataBlockUpdated");
-                    Objects_ObjectDataBlockUpdate(p1, (LMV.ObjectDataBlockUpdateEventArgs)p2);
-                    break;
-                case CommActionCode.OnObjectUpdated:
-                    // m_log.Log(MBLogLevel.DCOMMDETAIL, "RegionAction: OnObjectUpdated");
-                    // Objects_OnObjectUpdated((LMV.Simulator)p1, (LMV.ObjectUpdate)p2, (ulong)p3, (ushort)p4);
-                    Objects_ObjectUpdate(p1, (LMV.PrimEventArgs)p2);
-                    break;
-                case CommActionCode.TerseObjectUpdate:
-                    // m_log.Log(MBLogLevel.DCOMMDETAIL, "RegionAction: TerseObjectUpdate");
-                    Objects_TerseObjectUpdate(p1, (LMV.TerseObjectUpdateEventArgs)p2);
-                    break;
-                case CommActionCode.OnAttachmentUpdate:
-                    // m_log.Log(MBLogLevel.DCOMMDETAIL, "RegionAction: OnAttachmentUpdated");
-                    Objects_AttachmentUpdate(p1, (LMV.PrimEventArgs)p2);
-                    break;
-                case CommActionCode.KillObject:
-                    // m_log.Log(MBLogLevel.DCOMMDETAIL, "RegionAction: KillObject");
-                    Objects_KillObject(p1, (LMV.KillObjectEventArgs)p2);
-                    break;
-                case CommActionCode.OnAvatarUpdate:
-                    // m_log.Log(MBLogLevel.DCOMMDETAIL, "RegionAction: AvatarUpdate");
-                    Objects_AvatarUpdate(p1, (LMV.AvatarUpdateEventArgs)p2);
-                    break;
-                case CommActionCode.OnAvatarAppearance:
-                    // m_log.Log(MBLogLevel.DCOMMDETAIL, "RegionAction: AvatarAppearance");
-                    Avatars_AvatarAppearance(p1, (LMV.AvatarAppearanceEventArgs)p2);
-                    break;
-                default:
-                    break;
-            }
-        } catch (Exception e) {
-            m_log.Log(MBLogLevel.DCOMMDETAIL, "RegionAction: FAILURE PROCESSING {0}: {1}", cac, e);
-        }
-    }
-    #endregion DELAYED REGION MANAGEMENT
-    */
-
-
-
 }

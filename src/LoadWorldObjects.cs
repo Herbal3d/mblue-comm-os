@@ -29,7 +29,7 @@ namespace org.herbal3d.mblue.comm.os {
             m_log = pLogger;
         }
 
-        public void Load(LMV.GridClient netComm, CommLLLP worldComm) {
+        public void Load(LMV.IGridClient netComm, CommLLLP worldComm) {
             m_log.Log(MBLogLevel.DCOMM, "LoadWorldObjects: loading existing context");
             List<LMV.Simulator> simsToLoad = new List<LMV.Simulator>();
             lock (netComm.Network.Simulators) {
@@ -57,7 +57,7 @@ namespace org.herbal3d.mblue.comm.os {
             try {
                 Object[] loadParams = (Object[])loadParam;
                 List<LMV.Simulator> simsToLoad = (List<LMV.Simulator>)loadParams[0];
-                LMV.GridClient netComm = (LMV.GridClient)loadParams[1];
+                LMV.IGridClient netComm = (LMV.IGridClient)loadParams[1];
                 CommLLLP worldComm = (CommLLLP)loadParams[2];
 
                 LMV.Simulator? simm = null;
@@ -76,19 +76,19 @@ namespace org.herbal3d.mblue.comm.os {
             m_log.Log(MBLogLevel.DCOMM, "LoadWorldObjects: completed loading sim objects");
         }
 
-        public void LoadASim(LMV.Simulator sim, LMV.GridClient netComm, CommLLLP worldComm) {
+        public void LoadASim(LMV.Simulator sim, LMV.IGridClient netComm, CommLLLP worldComm) {
             m_log.Log(MBLogLevel.DCOMM, "LoadWorldObjects: loading avatars and objects for sim {0}", sim.Name);
             AddAvatars(sim, netComm, worldComm);
             AddObjects(sim, netComm, worldComm);
         }
 
         // Return 'true' if we don't have this region in our world yet
-        private static bool WeDontKnowAboutThisSimulator(LMV.Simulator sim, LMV.GridClient netComm, CommLLLP worldComm) {
+        private static bool WeDontKnowAboutThisSimulator(LMV.Simulator sim, LMV.IGridClient netComm, CommLLLP worldComm) {
             RegionInfo? regn = worldComm.FindRegion(sim);
             return (regn is null);
         }
 
-        private void AddAvatars(LMV.Simulator sim, LMV.GridClient netComm, CommLLLP worldComm) {
+        private void AddAvatars(LMV.Simulator sim, LMV.IGridClient netComm, CommLLLP worldComm) {
             m_log.Log(MBLogLevel.DCOMM, "LoadWorldObjects: loading {0} avatars", sim.ObjectsAvatars.Count);
             List<LMV.Avatar> avatarsToNew = new List<LMV.Avatar>(sim.ObjectsAvatars.Values);
             // this happens outside the avatar list lock
@@ -97,7 +97,7 @@ namespace org.herbal3d.mblue.comm.os {
             });
         }
 
-        private void AddObjects(LMV.Simulator sim, LMV.GridClient netComm, CommLLLP worldComm) {
+        private void AddObjects(LMV.Simulator sim, LMV.IGridClient netComm, CommLLLP worldComm) {
             m_log.Log(MBLogLevel.DCOMM, "LoadWorldObjects: loading {0} primitives", sim.ObjectsPrimitives.Count);
             List<LMV.Primitive> primsToNew = new List<LMV.Primitive>(sim.ObjectsPrimitives.Values);
             // this happens outside the primitive list lock

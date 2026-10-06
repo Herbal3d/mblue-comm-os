@@ -23,6 +23,7 @@ namespace org.herbal3d.mblue.comm {
         private MBLogger<OSGridClient> m_Log;
         public OSGridClient(MBLogger<OSGridClient> pLog) {
             m_Log = pLog;
+            m_Log.Log(MBLogLevel.Information, "OSGridClient constructor");
         }
 
         public LMV.IGridClient? m_GridClient = null;

@@ -18,7 +18,7 @@ namespace org.herbal3d.mblue.comm.os {
     public class CmptOSAnimation : ComponentBase<CmptOSAnimation> {
 
         private MBLogger<CmptOSAnimation> m_log;
-        private LMV.IGridClient m_client;
+        private OSGridClient m_client;
 
         // for the moment, there is not much to an animation
         public LMV.Vector3 AngularVelocity { get; set; } = LMV.Vector3.Zero;
@@ -28,7 +28,7 @@ namespace org.herbal3d.mblue.comm.os {
         public float StaticRotationRotPerSec { get; set; } = 0f;
 
         public CmptOSAnimation(MBLogger<CmptOSAnimation> pLog,
-                                LMV.IGridClient pClient,
+                                OSGridClient pClient,
                                 IEntity pContainingEntity
                                 ) : base(pContainingEntity) {
             m_log = pLog;

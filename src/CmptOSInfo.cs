@@ -28,14 +28,14 @@ namespace org.herbal3d.mblue.comm.os {
     /// </summary>
     public class CmptOSInfo : ComponentBase<CmptOSInfo> {
         private MBLogger<CmptOSInfo> m_log;
-        private LMV.IGridClient m_client;
+        private OSGridClient m_client;
         private IOptions<CommOSConfig> m_config;
 
         // The region the entity is in
         public RegionInfo? Region { get; set; }
 
         public CmptOSInfo(MBLogger<CmptOSInfo> pLog,
-                        LMV.IGridClient pClient,
+                        OSGridClient pClient,
                         IOptions<CommOSConfig> pConfig,
                         RegionInfo? pRegion,
                         IEntity pContainingEntity)

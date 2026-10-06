@@ -19,10 +19,10 @@ namespace org.herbal3d.mblue.comm.os {
     public class CmptOSLocation : ComponentBase<CmptOSLocation> {
 
         private MBLogger<CmptOSLocation> m_log;
-        private LMV.IGridClient m_client;
+        private OSGridClient m_client;
 
         public CmptOSLocation(MBLogger<CmptOSLocation> pLog,
-                            LMV.IGridClient pClient,
+                            OSGridClient pClient,
                             IEntity pContainingEntity) : base(pContainingEntity) {
             m_log = pLog;
             m_client = pClient;
@@ -36,7 +36,7 @@ namespace org.herbal3d.mblue.comm.os {
                 if (m_haveLocalHeading) {
                     return m_heading;
                 }
-                var sr = m_client.Self.SimRotation;
+                var sr = m_client.GridClient.Self.SimRotation;
                 return new Quaternion(sr.X, sr.Y, sr.Z, sr.W);
             }
             set {
@@ -69,7 +69,7 @@ namespace org.herbal3d.mblue.comm.os {
 
         public Vector3d GlobalPosition {
             get {
-                var gp = m_client.Self.GlobalPosition;
+                var gp = m_client.GridClient.Self.GlobalPosition;
                 return new Vector3d(gp.X, gp.Y, gp.Z);
                 // return AssociatedAvatar.RegionContext.CalculateGlobalPosition(RelativePosition);
             }
