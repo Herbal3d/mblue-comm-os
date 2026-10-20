@@ -457,10 +457,11 @@ public class CommLLLP : ICommProvider {
     public virtual void Network_SimConnected(object? sender, LMV.SimConnectedEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Network_SimConnected: Simulator connected");
         m_stats.NetSimConnected.Event();
-        if (!m_regionCollection.HasRegionInfo(args.Simulator)) {
-            m_log.Log(MBLogLevel.DWORLD, $"Network_SimConnected: Simulator not in region collection. Adding region {args.Simulator.Name}");
-            m_regionCollection.AddRegionInfo(new RegionInfo(args.Simulator));
-        }
+
+        m_log.Log(MBLogLevel.DCOMM, $"Network_SimConnected: Simulator not in region collection. Adding region {args.Simulator.Name}");
+        m_regionCollection.AddRegionInfo(new RegionInfo(args.Simulator));
+
+        IsConnected = true;
     }
 
     // ===============================================================
@@ -470,16 +471,24 @@ public class CommLLLP : ICommProvider {
         // if we'd queued up actions, do them now that it's online
         DoAnyWaitingEvents(args.Simulator);
 
-        // this is needed to make the avatar appear
-        // TODO: figure out if the linking between agent and appearance is right
-        // GridClient.Appearance.SetPreviousAppearance(true);
-        LMV.IGridClient gc = m_gridClient.GridClient;
-        gc.Appearance.RequestSetAppearance(true);
-        gc.Self.Movement.UpdateFromHeading(0.0, true);
-        if (gc.Network.CurrentSim != null) {
+        try {
+            // this is needed to make the avatar appear
+            // TODO: figure out if the linking between agent and appearance is right
+            // TODO: these are await-able so maybe somehow schedule them to happen later
+            // At the moment this causes an exception in SendAsync with a cancelled token.
+            /*
+            LMV.IGridClient gc = m_gridClient.GridClient;
+            gc.Appearance.SetPreviousAppearance(true);
+            gc.Appearance.RequestSetAppearance(true);
+            gc.Self.Movement.UpdateFromHeading(0.0, true);
+            if (gc.Network.CurrentSim != null) {
 #pragma warning disable CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
-            gc.Parcels.RequestAllSimParcelsAsync(gc.Network.CurrentSim, false, new TimeSpan(0, 0, 30), m_cancellationToken).ConfigureAwait(false);
+                gc.Parcels.RequestAllSimParcelsAsync(gc.Network.CurrentSim, false, new TimeSpan(0, 0, 30), m_cancellationToken).ConfigureAwait(false);
 #pragma warning restore CS4014 // Because this call is not awaited, execution of the current method continues before the call is completed
+            }
+            */
+        } catch (Exception ex) {
+            m_log.Log(MBLogLevel.Error, $"Network_EventQueueRunning: Exception occurred - {ex.ToString()}");
         }
     }
 
@@ -492,7 +501,7 @@ public class CommLLLP : ICommProvider {
             m_SwitchingSims = true;
         }
         if (args.PreviousSimulator != null) {      // there is no prev sim the first time
-            m_log.Log(MBLogLevel.DWORLD, "Simulator changed from {0}", args.PreviousSimulator.Name);
+            m_log.Log(MBLogLevel.DCOMM, "Simulator changed from {0}", args.PreviousSimulator.Name);
             // TODO: Handle the previous simulator being disconnected or cleaned up.
         }
     }
@@ -500,7 +509,7 @@ public class CommLLLP : ICommProvider {
     // ===============================================================
     public virtual void Terrain_LandPatchReceived(object? sender, LMV.LandPatchReceivedEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Terrain_LandPatchReceived: Land patch received");
-        // m_log.Log(MBLogLevel.DWORLDDETAIL, "Land patch for {0}: {1}, {2}, {3}", 
+        // m_log.Log(MBLogLevel.DCOMMDETAIL, "Land patch for {0}: {1}, {2}, {3}", 
         //             args.Simulator.Name, args.X, args.Y, args.PatchSize);
         if (m_regionCollection.TryGetRegionInfo(args.Simulator, out RegionInfo? ri)) {
             if (ri?.TerrainEntity is not null) {
@@ -522,7 +531,6 @@ public class CommLLLP : ICommProvider {
     // ===============================================================
     public void Objects_ObjectUpdate(object? sender, LMV.PrimEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_ObjectUpdate: Object update received");
-        RegionInfo? rit = m_regionCollection.GetRegionInfo(args.Simulator);
 
         QueueTilOnline<LMV.PrimEventArgs>(args.Simulator, sender, args, (sender, args, ri) => {
             if (args.IsAttachment) {
@@ -560,7 +568,11 @@ public class CommLLLP : ICommProvider {
         return;
     }
 
-    private IEntity FindOrCreateEntity(LMV.Primitive prim, RegionInfo pRegion, ref UpdateInfo pUpdateInfo) {
+    private IEntity? FindOrCreateEntity(LMV.Primitive prim, RegionInfo? pRegion, ref UpdateInfo pUpdateInfo) {
+        if (pRegion is null) {
+            m_log.Log(MBLogLevel.DCOMMDETAIL, "FindOrCreateEntity: Region info is null for prim {0}", prim.LocalID);
+            return null;
+        }
         if (!m_ecmFactory.TryGetEntity(prim.LocalID, out IEntity? entity)) {
             m_log.Log(MBLogLevel.DUPDATEDETAIL, "FindEntityOrCreateIfItDoesNotExist: creating new entity for local ID {0}", prim.LocalID);
 
@@ -686,7 +698,6 @@ public class CommLLLP : ICommProvider {
     // The packet library has updated the attachement points in the prim already
     // This needs to get the attachment loaded into the world
     public void Objects_AttachmentUpdate(object? sender, LMV.PrimEventArgs args) {
-        RegionInfo? rit = m_regionCollection.GetRegionInfo(args.Simulator);
 
         QueueTilOnline<LMV.PrimEventArgs>(args.Simulator, sender, args, (sender, args, ri) => {
             m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_AttachmentUpdate: Attachment update received");
@@ -734,7 +745,6 @@ public class CommLLLP : ICommProvider {
     // ===============================================================
     private void Objects_TerseObjectUpdate(object? sender, LMV.TerseObjectUpdateEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_TerseObjectUpdate: Terse object update received");
-        RegionInfo? rit = m_regionCollection.GetRegionInfo(args.Simulator);
 
         QueueTilOnline<LMV.TerseObjectUpdateEventArgs>(args.Simulator, sender, args, (sender, args, ri) => {
             if (args.Simulator == null) {
@@ -798,8 +808,6 @@ public class CommLLLP : ICommProvider {
     public void Objects_AvatarUpdate(object? sender, LMV.AvatarUpdateEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_AvatarUpdate: Avatar update received");
 
-        RegionInfo? rit = FindRegion(args.Simulator);
-
         QueueTilOnline<LMV.AvatarUpdateEventArgs>(args.Simulator, sender, args, (sender, args, ri) => {
             Task.Run(async () => {
 
@@ -841,11 +849,10 @@ public class CommLLLP : ICommProvider {
     // ===============================================================
     public virtual void Objects_KillObject(object? sender, LMV.KillObjectEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Objects_KillObject: Object kill received");
-        RegionInfo? rit = FindRegion(args.Simulator);
 
         QueueTilOnline<LMV.KillObjectEventArgs>(args.Simulator, sender, args, (sender, args, ri) => {
             m_stats.ObjKillObject.Event();
-            m_log.Log(MBLogLevel.DWORLDDETAIL, "Object killed:");
+            m_log.Log(MBLogLevel.DCOMMDETAIL, "Object killed:");
 
             try {
                 IEntity removedEntity;
@@ -862,7 +869,6 @@ public class CommLLLP : ICommProvider {
     // ===============================================================
     public virtual void Avatars_AvatarAppearance(object? sender, LMV.AvatarAppearanceEventArgs args) {
         m_log.Log(MBLogLevel.DCOMMDETAIL, "EVENT Avatars_AvatarAppearance: Avatar appearance received");
-        RegionInfo? rit = FindRegion(args.Simulator);
 
         QueueTilOnline<LMV.AvatarAppearanceEventArgs>(args.Simulator, sender, args, (sender, args, ri) => {
             m_log.Log(MBLogLevel.DCOMMDETAIL, "AvatarAppearance: id={0}", args.AvatarID.ToString());
@@ -884,7 +890,7 @@ public class CommLLLP : ICommProvider {
     /// Called when we just log in. We create our agent and put it into the world
     /// </summary>
     public virtual void Comm_OnLoggedIn() {
-        m_log.Log(MBLogLevel.DWORLD, "Comm_OnLoggedIn:");
+        m_log.Log(MBLogLevel.DCOMM, "Comm_OnLoggedIn:");
         // I work by taking LLLP messages and updating the agent
         // The agent will be updated in the world (usually by the viewer)
         // Create the two way communication linkage
@@ -893,12 +899,12 @@ public class CommLLLP : ICommProvider {
 
     // ===============================================================
     public virtual void Comm_OnLoggedOut() {
-        m_log.Log(MBLogLevel.DWORLD, "Comm_OnLoggedOut:");
+        m_log.Log(MBLogLevel.DCOMM, "Comm_OnLoggedOut:");
     }
 
     // ===============================================================
     public virtual void Comm_OnAgentUpdated(IEntity agnt, UpdateCodes what) {
-        m_log.Log(MBLogLevel.DWORLDDETAIL, "Comm_OnAgentUpdated:");
+        m_log.Log(MBLogLevel.DCOMMDETAIL, "Comm_OnAgentUpdated:");
 
     }
 
@@ -906,17 +912,23 @@ public class CommLLLP : ICommProvider {
     // given a simulator. Find the region info that we store the stuff in
     // Note that, if we are not connected, we just return null thus showing our unhappiness.
     public virtual RegionInfo? FindRegion(LMV.Simulator? sim) {
-        if (sim == null) return null;
+        if (sim == null) {
+            m_log.Log(MBLogLevel.DCOMMDETAIL, "FindRegion: Returning null because simulator is null");
+            return null;
+        }
         RegionInfo? foundRegion = null;
-        if (IsConnected) {
-            m_regionCollection.TryGetRegionInfo(sim.ID, out foundRegion);
+        if (sim.IsEventQueueRunning() && sim.IsRunning) {
+            m_regionCollection.TryGetRegionInfo(sim, out foundRegion);
+            // m_log.Log(MBLogLevel.DCOMMDETAIL, $"FindRegion: running. Found region is {foundRegion?.Name ?? "null!!!"}");
+        } else {
+            // m_log.Log(MBLogLevel.DCOMMDETAIL, "FindRegion: not running");
         }
         return foundRegion;
     }
 
     // There are object events that are received before the simulator is fully online.
     // These events need to be queued until the simulator is ready.
-    delegate void QueueTilOnlineDelegate<T>(object? pSender, T pArgs, RegionInfo pRi) where T : EventArgs;
+    delegate void QueueTilOnlineDelegate<T>(object? pSender, T pArgs, RegionInfo? pRi) where T : EventArgs;
     private List<SavedEvent> m_waitTilOnline = new List<SavedEvent>();
 
     private struct SavedEvent {
@@ -971,7 +983,7 @@ public class CommLLLP : ICommProvider {
             eventsToProcess = m_waitTilOnline.Where(e => e.Simulator == pSimulator).ToList();
             m_waitTilOnline.RemoveAll(e => e.Simulator == pSimulator);
         }
-        m_log.Log(MBLogLevel.DCOMMDETAIL, $"Found {eventsToProcess.Count} waiting events for simulator {pSimulator.Name} in queue of {m_waitTilOnline.Count} waiing event");
+        m_log.Log(MBLogLevel.DCOMMDETAIL, $"Found {eventsToProcess.Count} waiting events for simulator '{pSimulator.Name}' in queue leaving {m_waitTilOnline.Count} waiting events");
         foreach (SavedEvent savedEvent in eventsToProcess) {
             if (savedEvent.Region?.Simulator == pSimulator) {
                 // If the region info was not present when the event was queued, try to find it using the simulator reference.
@@ -981,7 +993,9 @@ public class CommLLLP : ICommProvider {
                     continue;
                 }
                 m_log.Log(MBLogLevel.DCOMMDETAIL, $"Processing waiting event of type {savedEvent.ArgsType.Name} in region {regionInfo.Name}");
-                Task.Run(() => savedEvent.Callback.DynamicInvoke(savedEvent.Sender, savedEvent.Args, regionInfo));
+                Task.Run(() => {
+                    savedEvent.Callback.DynamicInvoke(savedEvent.Sender, savedEvent.Args, regionInfo);
+                });
                 // savedEvent.Callback.DynamicInvoke(savedEvent.Sender, savedEvent.Args, regionInfo);
             }
         }

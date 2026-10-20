@@ -69,7 +69,7 @@ namespace org.herbal3d.mblue.comm.os {
 
                 if (reg is null) {
                     // things are not set up so create a default, flat heightmap
-                    m_log.Log(MBLogLevel.DWORLDDETAIL, "TerrainInfo: Building default zero terrain");
+                    m_log.Log(MBLogLevel.DCOMMDETAIL, "TerrainInfo: Building default zero terrain");
                     CreateZeroHeight(ref newHM);
                     minHeight = maxHeight = 0f;
                 } else {
@@ -77,7 +77,7 @@ namespace org.herbal3d.mblue.comm.os {
                         RegionInfo llreg = (RegionInfo)reg;
                         LMV.Simulator? sim = llreg.Simulator;
                         if (sim == null) {
-                            m_log.Log(MBLogLevel.DWORLDDETAIL, "TerrainInfo: Simulator is null");
+                            m_log.Log(MBLogLevel.DCOMMDETAIL, "TerrainInfo: Simulator is null");
                             CreateZeroHeight(ref newHM);
                             minHeight = maxHeight = 0f;
                             return;
@@ -111,11 +111,11 @@ namespace org.herbal3d.mblue.comm.os {
                                 }
                             }
                         }
-                        // m_log.Log(MBLogLevel.DWORLDDETAIL,
+                        // m_log.Log(MBLogLevel.DCOMMDETAIL,
                         //         "TerrainInfo: UpdateHeightMap: {0} null patches = {1}", sim.Name, nullPatchCount);
                     } catch {
                         // this usually happens when first starting a region
-                        m_log.Log(MBLogLevel.DWORLDDETAIL,
+                        m_log.Log(MBLogLevel.DCOMMDETAIL,
                                 "TerrainInfo: Exception building terrain. Defaulting to zero.");
                         CreateZeroHeight(ref newHM);
                         minHeight = maxHeight = 0f;
@@ -126,7 +126,7 @@ namespace org.herbal3d.mblue.comm.os {
                 HeightMapLength = TerrainPatchLength;
                 MinimumHeight = minHeight;
                 MaximumHeight = maxHeight;
-                m_log.Log(MBLogLevel.DWORLDDETAIL,
+                m_log.Log(MBLogLevel.DCOMMDETAIL,
                         "TerrainInfo: New terrain:"
                         + " min=" + MinimumHeight.ToString()
                         + " max=" + MaximumHeight.ToString()

@@ -66,7 +66,7 @@ namespace org.herbal3d.mblue.Config {
         public int MaxPendingAcks { get; set; } = 10;
         public int StatsQueueSize { get; set; } = 5;
         public int MaxResendCount { get; set; } = 3;
-        public bool ThrottleOutgoing { get; set; } = true;
+        public bool ThrottleOutgoing { get; set; } = false;
         public bool EnableSimStats { get; set; } = true;
         public bool SendPings { get; set; } = true;
         public bool TrackUtilization { get; set; } = false;

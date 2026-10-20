@@ -12,6 +12,8 @@
 using org.herbal3d.mblue.Common;
 using org.herbal3d.mblue.ecm;
 
+using org.herbal3d.mblue.Logging;
+
 using LMV = LibreMetaverse;
 
 namespace org.herbal3d.mblue.comm.os;
@@ -34,10 +36,18 @@ public class RegionInfo {
 public class RegionCollection {
     private DualIndexDictionary<LMV.Simulator, LMV.UUID, RegionInfo> m_regionInfo = new DualIndexDictionary<LMV.Simulator, LMV.UUID, RegionInfo>();
 
+    private MBLogger<RegionCollection> m_log;
+
+    public RegionCollection(MBLogger<RegionCollection> logger) {
+        m_log = logger;
+        m_log.Log(MBLogLevel.DCOMM, "RegionCollection initialized");
+    }
+
     public RegionInfo? GetRegionInfo(LMV.Simulator simulator) {
         if (m_regionInfo.TryGetValue(simulator, out var regionInfo)) {
             return regionInfo;
         }
+        m_log.Log(MBLogLevel.DCOMM, "RegionInfo not found for simulator: " + simulator?.Name ?? "<unknown>");
         return null;
     }
 
@@ -58,8 +68,14 @@ public class RegionCollection {
     }
 
     public void AddRegionInfo(RegionInfo pRegionInfo) {
-        if (pRegionInfo.Simulator == null) return;
-        m_regionInfo.Add(pRegionInfo.Simulator, pRegionInfo.Simulator.RegionID, pRegionInfo);
+        lock (m_regionInfo) {
+            if (pRegionInfo.Simulator != null) {
+                if (!m_regionInfo.ContainsKey(pRegionInfo.Simulator)) {
+                    m_log.Log(MBLogLevel.DCOMM, "Adding RegionInfo for simulator: " + pRegionInfo.Simulator?.Name ?? "<unknown>");
+                    m_regionInfo.Add(pRegionInfo.Simulator, pRegionInfo.Simulator.RegionID, pRegionInfo);
+                }
+            }
+        }
     }
 }
 
